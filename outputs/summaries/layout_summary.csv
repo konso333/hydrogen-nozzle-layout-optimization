@@ -1,0 +1,5 @@
+﻿layout,nozzle_count,count_ok,min_center_distance_mm,mean_nearest_neighbour_mm,max_center_radius_mm,boundary_ok,min_spacing_ok,x_axis_symmetric,y_axis_symmetric,origin_symmetric,overall_ok
+A_Rectangular,24,True,18.0,18.0,52.478567053607705,True,True,True,True,True,True
+B_Hexagonal,24,True,15.999999999999998,15.999999999999998,40.0,True,True,True,True,True,True
+C_Double_Ring,24,True,18.72867091354829,18.863837815117034,48.00000000000001,True,True,True,True,True,True
+D_Triple_Ring,24,True,18.72867091354829,19.85491847116326,48.00000000000001,True,True,True,False,False,True
