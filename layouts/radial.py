@@ -6,7 +6,8 @@ import math
 
 import numpy as np
 
-from layouts._common import finalize_layout
+from layouts._common import finalize_layout, validate_layout_inputs
+from validation import InputValidationError, require_count, require_finite
 
 
 def radial_spoke_layout(
@@ -24,14 +25,20 @@ def radial_spoke_layout(
 ) -> list[tuple[float, float]]:
     """Place points on equally spaced rays with deterministic radial positions."""
 
-    if num_spokes <= 0 or points_per_spoke <= 0:
-        raise ValueError("num_spokes and points_per_spoke must be positive.")
+    validate_layout_inputs(N=N, R=R, d=d, s_min=s_min, tolerance=tolerance)
+    require_count(num_spokes, "num_spokes")
+    require_count(points_per_spoke, "points_per_spoke")
+    for name, value in (
+        ("inner_radius", inner_radius), ("outer_radius", outer_radius),
+        ("angular_offset", angular_offset),
+    ):
+        require_finite(value, name)
     if num_spokes * points_per_spoke != N:
-        raise ValueError("num_spokes * points_per_spoke must equal N.")
+        raise InputValidationError("num_spokes * points_per_spoke must equal N.")
     if inner_radius < 0 or outer_radius < inner_radius:
-        raise ValueError("Require 0 <= inner_radius <= outer_radius.")
+        raise InputValidationError("Require 0 <= inner_radius <= outer_radius.")
     if num_spokes > 1 and points_per_spoke > 1 and inner_radius == 0:
-        raise ValueError("inner_radius must be positive to avoid duplicate centre points.")
+        raise InputValidationError("inner_radius must be positive to avoid duplicate centre points.")
 
     if points_per_spoke == 1:
         radii = [float(outer_radius)]

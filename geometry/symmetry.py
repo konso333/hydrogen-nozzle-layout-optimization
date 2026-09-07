@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 
+from geometry.constraints import as_point_array
+from validation import require_tolerance
+
 
 def symmetry_check(points, tolerance: float = 1e-6) -> dict[str, bool]:
     """Check reflection about both axes and 180-degree rotation.
@@ -11,11 +14,8 @@ def symmetry_check(points, tolerance: float = 1e-6) -> dict[str, bool]:
     Symmetry is reported as a metric.  It is not a hard feasibility constraint.
     """
 
-    array = np.asarray(points, dtype=float)
-    if array.size == 0:
-        array = np.empty((0, 2), dtype=float)
-    if array.ndim != 2 or array.shape[1] != 2:
-        raise ValueError("points must have shape (N, 2).")
+    require_tolerance(tolerance)
+    array = as_point_array(points)
 
     def has_point(target: tuple[float, float]) -> bool:
         return bool(

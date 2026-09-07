@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from layouts._common import finalize_layout, validate_layout_inputs
 from layouts.hexagonal import (
     HEXAGONAL_BASELINE_PARAMETERS,
     hexagonal_baseline,
@@ -26,9 +27,14 @@ from layouts.ring import (
     triple_ring_baseline,
 )
 from layouts.sector import sector_layout
+from validation import InputValidationError
 
 
 LayoutGenerator = Callable[..., list[tuple[float, float]]]
+
+
+class UnknownLayoutTypeError(InputValidationError):
+    """The requested layout type is not registered."""
 
 
 LAYOUT_REGISTRY: dict[str, LayoutGenerator] = {
@@ -82,17 +88,23 @@ def generate_layout(
 ) -> list[tuple[float, float]]:
     """Generate and validate a layout through one consistent public API."""
 
+    tolerance = layout_parameters.get("tolerance", 1e-9)
+    validate_layout_inputs(N=N, R=R, d=d, s_min=s_min, tolerance=tolerance)
+    if not isinstance(layout_type, str):
+        raise InputValidationError("layout_type must be a string.")
     try:
         generator = LAYOUT_REGISTRY[layout_type]
     except KeyError as exc:
         choices = ", ".join(available_layout_types())
-        raise ValueError(f"Unknown layout_type {layout_type!r}. Available: {choices}") from exc
+        raise UnknownLayoutTypeError(f"Unknown layout_type {layout_type!r}. Available: {choices}") from exc
 
-    return generator(N=N, R=R, d=d, s_min=s_min, **layout_parameters)
+    points = generator(N=N, R=R, d=d, s_min=s_min, **layout_parameters)
+    return finalize_layout(points, N=N, R=R, d=d, s_min=s_min, tolerance=tolerance)
 
 
 __all__ = [
     "BASELINE_LAYOUT_PARAMETERS",
+    "UnknownLayoutTypeError",
     "available_layout_types",
     "generate_layout",
     "register_layout",

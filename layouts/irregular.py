@@ -6,7 +6,8 @@ import math
 
 import numpy as np
 
-from layouts._common import finalize_layout
+from layouts._common import finalize_layout, validate_layout_inputs
+from validation import InputValidationError, require_finite
 
 
 def deterministic_irregular_layout(
@@ -28,12 +29,17 @@ def deterministic_irregular_layout(
     literature-proven optimality.
     """
 
-    if N <= 0:
-        raise ValueError("N must be positive.")
+    validate_layout_inputs(N=N, R=R, d=d, s_min=s_min, tolerance=tolerance)
+    for name, value in (
+        ("inner_radius", inner_radius), ("outer_radius", outer_radius),
+        ("angular_increment", angular_increment), ("angular_offset", angular_offset),
+        ("radial_exponent", radial_exponent),
+    ):
+        require_finite(value, name)
     if inner_radius < 0 or outer_radius < inner_radius:
-        raise ValueError("Require 0 <= inner_radius <= outer_radius.")
+        raise InputValidationError("Require 0 <= inner_radius <= outer_radius.")
     if radial_exponent <= 0:
-        raise ValueError("radial_exponent must be positive.")
+        raise InputValidationError("radial_exponent must be positive.")
     fractions = (np.arange(N, dtype=float) + 0.5) / N
     radii = inner_radius + (outer_radius - inner_radius) * fractions**radial_exponent
     points = []
