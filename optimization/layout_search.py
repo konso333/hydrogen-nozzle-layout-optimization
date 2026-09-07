@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from config import GeometryConfig
 from geometry.constraints import LayoutConstraintError
 from geometry.metrics import evaluate_geometry
+from json_values import json_value
 from layouts import generate_layout
 from validation import require_count
 
@@ -37,6 +38,7 @@ class LayoutCandidate:
                 self.layout_parameters,
                 ensure_ascii=False,
                 sort_keys=True,
+                default=json_value,
             ),
             **self.metrics,
         }

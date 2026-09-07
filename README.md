@@ -67,6 +67,34 @@ M1 输入契约：数量参数要求严格的 Python/NumPy 整数，拒绝 bool�
 
 优化目标先转换为 float，有限数字字符串和 Decimal 可以参与比较，无法转换的值及 NaN/Inf 不进入 Pareto 前沿。公共生成入口统一验证扩展生成器的最终坐标；独立几何诊断对有限但非法的尺寸/间距返回失败报告，生成入口则严格拒绝。搜索只过滤几何不可行，输入错误与程序异常继续抛出。完整契约、兼容影响及验收记录见 [M1_VALIDATION.md](M1_VALIDATION.md)。
 
+## M2：可追溯实验归档
+
+旧生成、比较和搜索入口仍保持默认行为。新归档通过独立入口启用：
+
+```bash
+python scripts/archive_experiment.py
+```
+
+该示例归档矩形 baseline、带旧 candidate ID 的双环搜索候选和扇区排列，并逐一从保存参数重新生成核验。每次运行创建独立的 `outputs/runs/<run_id>/run.json`，其 `cases` 索引关联各 case 的 JSON、坐标 CSV、PNG、硬约束验证和几何指标。
+
+`run_id` 表示一次实验批次；`case_id` 是完整规范化规格的确定性 SHA-256 身份。同一规格跨 run 保持同一 case ID；原 `candidate_id` 保留为兼容字段。参数单位为 mm / rad，Git、环境和运行时间单独保存为 provenance。CFD 初始状态为 `not_started`，所有未提供的 CFD 指标为 `null`。
+
+用于论文、答辩、正式 CFD 交接的 run，应尽量在包含生成代码的 **clean Git working tree** 下生成，并记录依赖环境。`dirty=True` 只表示存在未提交修改；当前不保存未提交源码快照，因此 commit hash 本身不足以完全复现 dirty run。
+
+检查某个 case 的局部文件和几何再生成结果：
+
+```bash
+python scripts/archive_experiment.py --verify outputs/runs/<run_id>/cases/<case_id>/case.json
+```
+
+完整归档核验另用 `verify_run()`，检查 run/case/provenance/CFD 的关联，并核验所有 case 的文件和再生成结果：
+
+```bash
+python scripts/archive_experiment.py --verify-run outputs/runs/<run_id>/run.json
+```
+
+API、归档结构、身份规则、CFD 交接契约和 M2 验收结果见 [M2_EXPERIMENTS.md](M2_EXPERIMENTS.md)。
+
 ## 生成 N=24 baseline
 
 ```bash
