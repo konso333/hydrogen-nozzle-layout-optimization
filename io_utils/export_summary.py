@@ -7,10 +7,12 @@ from pathlib import Path
 
 import pandas as pd
 
+from json_values import json_value
+
 
 def _csv_safe(value):
     if isinstance(value, (dict, list, tuple)):
-        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, default=json_value)
     return value
 
 
