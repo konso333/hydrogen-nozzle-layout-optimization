@@ -6,7 +6,8 @@ import math
 
 import numpy as np
 
-from layouts._common import finalize_layout
+from layouts._common import finalize_layout, validate_layout_inputs
+from validation import InputValidationError, require_count, require_finite
 
 
 RECTANGULAR_BASELINE_PARAMETERS = {
@@ -34,14 +35,18 @@ def rectangular_layout(
     square grid.  The explicit 6-by-4 mode reproduces A_Rectangular exactly.
     """
 
+    validate_layout_inputs(N=N, R=R, d=d, s_min=s_min, tolerance=tolerance)
+    require_finite(spacing, "spacing")
     if spacing <= 0:
-        raise ValueError("spacing must be positive.")
+        raise InputValidationError("spacing must be positive.")
     if (rows is None) != (columns is None):
-        raise ValueError("rows and columns must be supplied together.")
+        raise InputValidationError("rows and columns must be supplied together.")
 
     if rows is not None and columns is not None:
+        require_count(rows, "rows")
+        require_count(columns, "columns")
         if rows <= 0 or columns <= 0 or rows * columns != N:
-            raise ValueError("rows * columns must equal N.")
+            raise InputValidationError("rows * columns must equal N.")
         x_values = (np.arange(columns) - (columns - 1) / 2.0) * spacing
         y_values = (np.arange(rows) - (rows - 1) / 2.0) * spacing
         points = [(float(x), float(y)) for y in y_values for x in x_values]
@@ -75,7 +80,7 @@ def rectangular_baseline(
     """Reproduce A_Rectangular and keep the baseline fixed at N=24."""
 
     if N != 24:
-        raise ValueError("A_Rectangular is a fixed N=24 baseline.")
+        raise InputValidationError("A_Rectangular is a fixed N=24 baseline.")
     return rectangular_layout(
         N=N,
         R=R,

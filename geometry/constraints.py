@@ -6,6 +6,8 @@ import math
 
 import numpy as np
 
+from validation import require_count, require_finite, require_tolerance
+
 
 class LayoutConstraintError(ValueError):
     """Raised when a generated point set violates a requested constraint."""
@@ -14,8 +16,11 @@ class LayoutConstraintError(ValueError):
 def as_point_array(points) -> np.ndarray:
     """Return a finite float array with shape ``(N, 2)``."""
 
-    array = np.asarray(points, dtype=float)
-    if array.size == 0:
+    try:
+        array = np.asarray(points, dtype=float)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("points must contain finite numeric coordinates with shape (N, 2).") from exc
+    if array.shape == (0,):
         return np.empty((0, 2), dtype=float)
     if array.ndim != 2 or array.shape[1] != 2:
         raise ValueError("points must have shape (N, 2).")
@@ -68,6 +73,9 @@ def boundary_check(
 ) -> bool:
     """Check that every full nozzle lies inside the circular burner face."""
 
+    require_finite(R, "R")
+    require_finite(d, "d")
+    require_tolerance(tolerance)
     array = as_point_array(points)
     if R <= 0 or d <= 0 or d > 2 * R:
         return False
@@ -78,6 +86,8 @@ def boundary_check(
 def overlap_check(points, d: float, tolerance: float = 1e-9) -> bool:
     """Check the independent physical non-overlap condition."""
 
+    require_finite(d, "d")
+    require_tolerance(tolerance)
     if d <= 0:
         return False
     minimum = minimum_center_distance(points)
@@ -92,6 +102,9 @@ def spacing_check(
 ) -> bool:
     """Check both nozzle non-overlap and the requested centre spacing."""
 
+    require_finite(d, "d")
+    require_finite(s_min, "s_min")
+    require_tolerance(tolerance)
     if d <= 0 or s_min < 0:
         return False
     required_distance = max(d, s_min)
@@ -108,11 +121,15 @@ def validate_layout_constraints(
     s_min: float,
     tolerance: float = 1e-9,
 ) -> dict[str, object]:
-    """Evaluate hard constraints and return explicit failure reasons."""
+    """Report finite invalid geometry; reject non-finite inputs and bad counts.
 
+    Unlike generation, this diagnostic entry point returns failure flags for
+    finite out-of-range R, d and s_min. Tolerance must remain finite and nonnegative.
+    """
+
+    if N is not None:
+        require_count(N, "N", allow_zero=True)
     array = as_point_array(points)
-    if N is not None and N < 0:
-        raise ValueError("N cannot be negative.")
 
     count_ok = N is None or len(array) == N
     boundary_ok = boundary_check(array, R=R, d=d, tolerance=tolerance)

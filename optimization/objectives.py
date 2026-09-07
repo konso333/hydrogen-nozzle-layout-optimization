@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Mapping
 
+from validation import InputValidationError, require_tolerance
 
 DEFAULT_MAXIMIZE_OBJECTIVES = (
     "N",
@@ -12,16 +14,36 @@ DEFAULT_MAXIMIZE_OBJECTIVES = (
 )
 
 
+class UndefinedObjectiveError(ValueError):
+    """A Pareto objective is missing, nonnumeric, or non-finite."""
+
+
+def _objective_values(row: Mapping[str, object], objectives: tuple[str, ...]) -> list[float]:
+    if not objectives:
+        raise InputValidationError("objectives must not be empty.")
+    values = []
+    for name in objectives:
+        try:
+            value = float(row[name])
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise UndefinedObjectiveError(f"objective {name!r} must be present and finite.") from exc
+        if not math.isfinite(value):
+            raise UndefinedObjectiveError(f"objective {name!r} must be present and finite.")
+        values.append(value)
+    return values
+
+
 def dominates(
     candidate: Mapping[str, object],
     other: Mapping[str, object],
     objectives: tuple[str, ...] = DEFAULT_MAXIMIZE_OBJECTIVES,
     tolerance: float = 1e-12,
 ) -> bool:
-    """Return True when candidate is no worse in all and better in one objective."""
+    """Compare finite objectives; raise UndefinedObjectiveError for undefined values."""
 
-    candidate_values = [float(candidate[name]) for name in objectives]
-    other_values = [float(other[name]) for name in objectives]
+    require_tolerance(tolerance)
+    candidate_values = _objective_values(candidate, objectives)
+    other_values = _objective_values(other, objectives)
     no_worse = all(
         left >= right - tolerance
         for left, right in zip(candidate_values, other_values)
@@ -37,15 +59,16 @@ def pareto_frontier(
     rows: Iterable[Mapping[str, object]],
     objectives: tuple[str, ...] = DEFAULT_MAXIMIZE_OBJECTIVES,
 ) -> list[dict[str, object]]:
-    """Return all non-dominated rows without constructing a weighted score."""
+    """Return non-dominated rows, excluding rows with any undefined objective."""
 
     records = [dict(row) for row in rows]
+    eligible = _eligible_indices(records, objectives)
     return [
         row
         for index, row in enumerate(records)
-        if not any(
-            dominates(other, row, objectives)
-            for other_index, other in enumerate(records)
+        if index in eligible and not any(
+            dominates(records[other_index], row, objectives)
+            for other_index in eligible
             if other_index != index
         )
     ]
@@ -55,13 +78,32 @@ def mark_pareto_candidates(
     rows: Iterable[Mapping[str, object]],
     objectives: tuple[str, ...] = DEFAULT_MAXIMIZE_OBJECTIVES,
 ) -> list[dict[str, object]]:
-    """Copy rows and add a boolean ``pareto_candidate`` field."""
+    """Copy rows and mark finite non-dominated candidates.
+
+    Objectives must convert to finite floats; numeric strings and Decimal values
+    are supported. Undefined objectives are marked False. Original metrics
+    remain unchanged, including N=1 NaNs.
+    """
 
     records = [dict(row) for row in rows]
+    eligible = _eligible_indices(records, objectives)
     for index, row in enumerate(records):
-        row["pareto_candidate"] = not any(
-            dominates(other, row, objectives)
-            for other_index, other in enumerate(records)
+        row["pareto_candidate"] = index in eligible and not any(
+            dominates(records[other_index], row, objectives)
+            for other_index in eligible
             if other_index != index
         )
     return records
+
+
+def _eligible_indices(records, objectives: tuple[str, ...]) -> set[int]:
+    if not objectives:
+        raise InputValidationError("objectives must not be empty.")
+    eligible = set()
+    for index, row in enumerate(records):
+        try:
+            _objective_values(row, objectives)
+        except UndefinedObjectiveError:
+            continue
+        eligible.add(index)
+    return eligible

@@ -6,7 +6,9 @@ import math
 
 import numpy as np
 
-from layouts._common import finalize_layout
+from geometry.constraints import LayoutConstraintError
+from layouts._common import finalize_layout, validate_layout_inputs
+from validation import InputValidationError, require_counts, require_finite
 
 
 HEXAGONAL_BASELINE_PARAMETERS = {
@@ -31,14 +33,16 @@ def hexagonal_layout(
     row counts, the N lattice sites nearest the origin are selected.
     """
 
+    validate_layout_inputs(N=N, R=R, d=d, s_min=s_min, tolerance=tolerance)
+    require_finite(spacing, "spacing")
     if spacing <= 0:
-        raise ValueError("spacing must be positive.")
+        raise InputValidationError("spacing must be positive.")
     dy = math.sqrt(3.0) * spacing / 2.0
 
     if row_counts is not None:
-        counts = [int(value) for value in row_counts]
+        counts = require_counts(row_counts, "row_counts")
         if any(value <= 0 for value in counts) or sum(counts) != N:
-            raise ValueError("row_counts must contain positive integers summing to N.")
+            raise InputValidationError("row_counts must contain positive integers summing to N.")
         y_values = (np.arange(len(counts)) - (len(counts) - 1) / 2.0) * dy
         points = []
         for count, y in zip(counts, y_values):
@@ -64,7 +68,7 @@ def hexagonal_layout(
             )
         )
         if len(candidates) < N:
-            raise ValueError(
+            raise LayoutConstraintError(
                 f"Only {len(candidates)} triangular-lattice sites fit, fewer than N={N}."
             )
         points = candidates[:N]
@@ -85,7 +89,7 @@ def hexagonal_baseline(
     """Reproduce B_Hexagonal and keep the baseline fixed at N=24."""
 
     if N != 24:
-        raise ValueError("B_Hexagonal is a fixed N=24 baseline.")
+        raise InputValidationError("B_Hexagonal is a fixed N=24 baseline.")
     return hexagonal_layout(
         N=N,
         R=R,

@@ -7,8 +7,10 @@ import math
 from dataclasses import dataclass
 
 from config import GeometryConfig
+from geometry.constraints import LayoutConstraintError
 from geometry.metrics import evaluate_geometry
 from layouts import generate_layout
+from validation import require_count
 
 
 @dataclass(frozen=True)
@@ -43,6 +45,7 @@ class LayoutCandidate:
 def default_layout_specs(N: int, config: GeometryConfig) -> list[LayoutSpec]:
     """Build a deterministic, bounded geometry search space for one N."""
 
+    require_count(N, "N")
     required = config.required_center_distance
     allowed = config.allowed_center_radius
     specs: list[LayoutSpec] = []
@@ -164,7 +167,7 @@ def evaluate_spec(
     spec: LayoutSpec,
     candidate_id: str,
 ) -> LayoutCandidate | None:
-    """Return a feasible candidate, or None for any invalid specification."""
+    """Return None only for geometric infeasibility; input errors and bugs propagate."""
 
     try:
         points = generate_layout(
@@ -176,16 +179,16 @@ def evaluate_spec(
             tolerance=config.tolerance,
             **spec.parameters,
         )
-        metrics = evaluate_geometry(
-            points,
-            R=config.R,
-            d=config.d,
-            s_min=config.s_min,
-            expected_N=N,
-            tolerance=config.tolerance,
-        )
-    except ValueError:
+    except LayoutConstraintError:
         return None
+    metrics = evaluate_geometry(
+        points,
+        R=config.R,
+        d=config.d,
+        s_min=config.s_min,
+        expected_N=N,
+        tolerance=config.tolerance,
+    )
     if not metrics["feasible"]:
         return None
     return LayoutCandidate(
@@ -205,8 +208,7 @@ def search_layouts_for_n(
 ) -> list[LayoutCandidate]:
     """Generate only feasible candidates for one nozzle count."""
 
-    if N <= 0:
-        raise ValueError("N must be positive.")
+    require_count(N, "N")
     selected_specs = default_layout_specs(N, config) if specs is None else specs
     candidates: list[LayoutCandidate] = []
     for index, spec in enumerate(selected_specs, start=1):

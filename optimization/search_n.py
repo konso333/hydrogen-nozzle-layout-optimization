@@ -12,6 +12,7 @@ from optimization.layout_search import (
     search_layouts_for_n,
 )
 from optimization.objectives import mark_pareto_candidates
+from validation import InputValidationError, require_count
 
 
 SpecFactory = Callable[[int, GeometryConfig], list[LayoutSpec]]
@@ -25,8 +26,10 @@ def search_variable_n(
 ) -> tuple[list[LayoutCandidate], list[dict[str, object]], list[dict[str, object]]]:
     """Return candidates, all marked rows, and the non-dominated rows."""
 
-    if N_min <= 0 or N_max < N_min:
-        raise ValueError("Require 0 < N_min <= N_max.")
+    require_count(N_min, "N_min")
+    require_count(N_max, "N_max")
+    if N_max < N_min:
+        raise InputValidationError("Require 0 < N_min <= N_max.")
 
     candidates: list[LayoutCandidate] = []
     for N in range(N_min, N_max + 1):

@@ -63,6 +63,10 @@ points = generate_layout(
 任意喷嘴中心半径 <= R - d/2
 ```
 
+M1 输入契约：数量参数要求严格的 Python/NumPy 整数，拒绝 bool、浮点数（包括 `4.0`）和字符串。环排列的连续参数（半径、相位、径向指数）接受可转换为有限 float 的值，例如 `ring_radii=["20"]`；通用几何配置仍要求有限实数及合法范围。`include_center` 接受 Python/NumPy 布尔标量，不接受任意真值对象。
+
+优化目标先转换为 float，有限数字字符串和 Decimal 可以参与比较，无法转换的值及 NaN/Inf 不进入 Pareto 前沿。公共生成入口统一验证扩展生成器的最终坐标；独立几何诊断对有限但非法的尺寸/间距返回失败报告，生成入口则严格拒绝。搜索只过滤几何不可行，输入错误与程序异常继续抛出。完整契约、兼容影响及验收记录见 [M1_VALIDATION.md](M1_VALIDATION.md)。
+
 ## 生成 N=24 baseline
 
 ```bash

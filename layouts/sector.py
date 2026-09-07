@@ -6,7 +6,8 @@ import math
 
 import numpy as np
 
-from layouts._common import finalize_layout
+from layouts._common import finalize_layout, validate_layout_inputs
+from validation import InputValidationError, require_count, require_finite
 
 
 def sector_layout(
@@ -30,16 +31,23 @@ def sector_layout(
     requested radial levels; any remainder is assigned to the inner levels.
     """
 
-    if num_sectors <= 0 or points_per_sector <= 0:
-        raise ValueError("num_sectors and points_per_sector must be positive.")
+    validate_layout_inputs(N=N, R=R, d=d, s_min=s_min, tolerance=tolerance)
+    require_count(num_sectors, "num_sectors")
+    require_count(points_per_sector, "points_per_sector")
+    require_count(radial_levels, "radial_levels")
+    for name, value in (
+        ("inner_radius", inner_radius), ("outer_radius", outer_radius),
+        ("sector_angle", sector_angle), ("angular_offset", angular_offset),
+    ):
+        require_finite(value, name)
     if num_sectors * points_per_sector != N:
-        raise ValueError("num_sectors * points_per_sector must equal N.")
+        raise InputValidationError("num_sectors * points_per_sector must equal N.")
     if radial_levels <= 0 or radial_levels > points_per_sector:
-        raise ValueError("radial_levels must be between 1 and points_per_sector.")
+        raise InputValidationError("radial_levels must be between 1 and points_per_sector.")
     if inner_radius < 0 or outer_radius < inner_radius:
-        raise ValueError("Require 0 <= inner_radius <= outer_radius.")
+        raise InputValidationError("Require 0 <= inner_radius <= outer_radius.")
     if not 0 <= sector_angle < 2.0 * math.pi / num_sectors:
-        raise ValueError(
+        raise InputValidationError(
             "sector_angle must be non-negative and smaller than sector spacing."
         )
 

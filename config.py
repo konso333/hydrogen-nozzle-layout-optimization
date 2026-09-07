@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from validation import InputValidationError, require_finite, require_tolerance
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 OUTPUT_ROOT = PROJECT_ROOT / "outputs"
@@ -23,16 +25,17 @@ class GeometryConfig:
     tolerance: float = 1e-9
 
     def __post_init__(self) -> None:
+        for name in ("R", "d", "s_min"):
+            require_finite(getattr(self, name), name)
+        require_tolerance(self.tolerance)
         if self.R <= 0:
-            raise ValueError("R must be positive.")
+            raise InputValidationError("R must be positive.")
         if self.d <= 0:
-            raise ValueError("d must be positive.")
+            raise InputValidationError("d must be positive.")
         if self.s_min < 0:
-            raise ValueError("s_min cannot be negative.")
+            raise InputValidationError("s_min cannot be negative.")
         if self.d > 2 * self.R:
-            raise ValueError("The nozzle diameter cannot exceed the burner diameter.")
-        if self.tolerance < 0:
-            raise ValueError("tolerance cannot be negative.")
+            raise InputValidationError("The nozzle diameter cannot exceed the burner diameter.")
 
     @property
     def allowed_center_radius(self) -> float:
