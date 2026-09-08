@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from layouts._common import finalize_layout, validate_layout_inputs
+from layouts.cross import cross_5_layout
 from layouts.hexagonal import (
     HEXAGONAL_BASELINE_PARAMETERS,
     hexagonal_baseline,
@@ -46,6 +47,7 @@ LAYOUT_REGISTRY: dict[str, LayoutGenerator] = {
     "staggered_ring": staggered_ring_layout,
     "nonuniform_ring": nonuniform_ring_layout,
     "deterministic_irregular": deterministic_irregular_layout,
+    "cross_5": cross_5_layout,
     "A_Rectangular": rectangular_baseline,
     "B_Hexagonal": hexagonal_baseline,
     "C_Double_Ring": double_ring_baseline,
@@ -116,4 +118,5 @@ __all__ = [
     "staggered_ring_layout",
     "nonuniform_ring_layout",
     "deterministic_irregular_layout",
+    "cross_5_layout",
 ]

@@ -23,7 +23,7 @@ BASELINE_GENERATORS = {
 }
 BUILTIN_TYPES = {
     "rectangular", "hexagonal", "ring", "sector", "radial_spoke",
-    "staggered_ring", "nonuniform_ring", "deterministic_irregular",
+    "staggered_ring", "nonuniform_ring", "deterministic_irregular", "cross_5",
 }
 COUNT_PARAMETERS = {
     "rows", "columns", "num_sectors", "points_per_sector", "radial_levels",

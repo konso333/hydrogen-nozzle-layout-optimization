@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "references": [
+    {
+      "reference_id": "H1",
+      "title": "Effects of Array Spacing on Thermoacoustic Instability and Heat-Release Dynamics in a Hydrogen Micromix Array Combustor",
+      "authors": [],
+      "year": 2026,
+      "venue": "Aerospace Science and Technology",
+      "doi": "10.1016/j.ast.2026.112865",
+      "url": "https://doi.org/10.1016/j.ast.2026.112865",
+      "source_type": "primary_research",
+      "notes": "Primary hydrogen micromix experiment. H1 reports the seven-tube regular-hexagonal topology, S=8/10/12 mm, and S/D=2.0/2.5/3.0, corresponding numerically to D=4 mm. The project uses d=4 mm only as a two-dimensional geometry parameter mapping for these spacing-ratio cases, not as a claim of full dimensional equivalence with all physical tube, injector, or combustor hardware diameters. Thermoacoustic conclusions are condition-specific. Authors are omitted until independently verified."
+    },
+    {
+      "reference_id": "H2",
+      "title": "Characterization of a 5-nozzle array using premix/micromix injection for hydrogen",
+      "authors": [
+        "Antoine Durocher",
+        "Luming Fan",
+        "Marc Füri",
+        "Gilles Bourque",
+        "Julien Sirois",
+        "David May",
+        "Jeffrey M. Bergthorson",
+        "Sean Yun",
+        "Patrizio Vena"
+      ],
+      "year": 2024,
+      "venue": "Applications in Energy and Combustion Science",
+      "doi": "10.1016/j.jaecs.2024.100260",
+      "url": "https://doi.org/10.1016/j.jaecs.2024.100260",
+      "source_type": "primary_research",
+      "notes": "Primary hydrogen premix/micromix experiment using five injectors in a cross-shaped array as a sector of a multi-element system."
+    },
+    {
+      "reference_id": "H3",
+      "title": "Scaling of an Aviation Hydrogen Micromix Injector Design for Industrial GT Combustion Applications",
+      "authors": ["Johannes Berger"],
+      "year": 2021,
+      "venue": "Aerotecnica Missili & Spazio",
+      "doi": "10.1007/s42496-021-00091-5",
+      "url": "https://doi.org/10.1007/s42496-021-00091-5",
+      "source_type": "primary_research",
+      "notes": "Primary engineering source describing injectors arranged laterally around an annular core and stacked in radial rows."
+    },
+    {
+      "reference_id": "H4",
+      "title": "Development of an Additive Manufactured Novel Hydrogen Combustor on Basis of the Proven Micromix Principle",
+      "authors": [],
+      "year": 2026,
+      "venue": "Journal of Engineering for Gas Turbines and Power",
+      "doi": "10.1115/1.4070243",
+      "url": "https://doi.org/10.1115/1.4070243",
+      "source_type": "primary_research",
+      "notes": "Primary engineering source contrasting circumferential fuel distribution in a Ring-Burner with radial distribution through multiple spokes in an RS-Burner. Authors are omitted until independently verified."
+    },
+    {
+      "reference_id": "H5",
+      "title": "Hydrogen combustion in micromix burners: Present stages, opportunities, and challenges",
+      "authors": [
+        "Luis Beltrán",
+        "Juan Sandoval",
+        "Jose Llain",
+        "Mauricio Carmona",
+        "Cinthia Audivet",
+        "Victor Pugliese"
+      ],
+      "year": 2024,
+      "venue": "International Journal of Hydrogen Energy",
+      "doi": "10.1016/j.ijhydene.2024.11.371",
+      "url": "https://doi.org/10.1016/j.ijhydene.2024.11.371",
+      "source_type": "secondary_review",
+      "notes": "Secondary review used for micromix background and the existence of multi-nozzle-array research, not as primary evidence for an exact hardware reproduction."
+    }
+  ],
+  "layouts": [
+    {
+      "layout_type": "rectangular",
+      "status": "literature_backed",
+      "evidence_level": "secondary_review",
+      "reference_ids": ["H5"],
+      "supported_claim": "The review documents multi-nozzle array research and rectangular-array examples in the hydrogen micromix field.",
+      "abstraction_notes": "The project creates a centred two-dimensional rectangular point grid with project-selected N, spacing, rows, and columns; it does not reproduce reviewed injector hardware."
+    },
+    {
+      "layout_type": "hexagonal",
+      "status": "literature_backed",
+      "evidence_level": "direct_primary",
+      "reference_ids": ["H1"],
+      "supported_claim": "H1 directly reports seven tubes in a regular hexagonal configuration with 8, 10, and 12 mm tube spacing and S/D of 2.0, 2.5, and 3.0.",
+      "abstraction_notes": "The general project generator is a two-dimensional triangular lattice for arbitrary supported N. For the opt-in N=7 literature geometry spacing-ratio cases, project d=4 mm maps the D value implied by H1's reported S and S/D values; it does not reproduce all physical tube, injector, or combustor hardware dimensions."
+    },
+    {
+      "layout_type": "ring",
+      "status": "literature_backed",
+      "evidence_level": "direct_primary",
+      "reference_ids": ["H3"],
+      "supported_claim": "H3 directly describes lateral injector placement forming a ring around an annular engine core, with rows stacked radially.",
+      "abstraction_notes": "The project models only idealized two-dimensional concentric point rings with user-selected radii, counts, and phase; it omits airgates, fuel tubes, and paper hardware dimensions."
+    },
+    {
+      "layout_type": "staggered_ring",
+      "status": "engineering_derived",
+      "evidence_level": "project_defined",
+      "reference_ids": [],
+      "supported_claim": "No direct literature claim is assigned in M5.",
+      "abstraction_notes": "The project extends concentric point rings with a deterministic phase increment between successive rings."
+    },
+    {
+      "layout_type": "nonuniform_ring",
+      "status": "engineering_derived",
+      "evidence_level": "project_defined",
+      "reference_ids": [],
+      "supported_claim": "No direct literature claim is assigned in M5.",
+      "abstraction_notes": "The project defines explicit or power-law nonuniform radial gaps for geometry search."
+    },
+    {
+      "layout_type": "sector",
+      "status": "engineering_derived",
+      "evidence_level": "project_defined",
+      "reference_ids": [],
+      "supported_claim": "No direct literature claim is assigned in M5.",
+      "abstraction_notes": "The project repeats an idealized two-dimensional fan pattern in equally spaced sectors; it is not the hardware sector described by H2."
+    },
+    {
+      "layout_type": "radial_spoke",
+      "status": "literature_inspired",
+      "evidence_level": "engineering_abstraction",
+      "reference_ids": ["H4"],
+      "supported_claim": "H4 directly describes a Radial-Spokes burner using radial hydrogen distribution through multiple spokes.",
+      "abstraction_notes": "The project represents spokes only as equally spaced rays of nozzle centres; spoke width, fuel passages, injector holes, airgates, and additive-manufactured hardware are not reproduced."
+    },
+    {
+      "layout_type": "deterministic_irregular",
+      "status": "engineering_derived",
+      "evidence_level": "project_defined",
+      "reference_ids": [],
+      "supported_claim": "No direct literature claim is assigned in M5.",
+      "abstraction_notes": "The project defines a deterministic radial law and angular increment as a non-grid comparison family."
+    },
+    {
+      "layout_type": "cross_5",
+      "status": "literature_backed",
+      "evidence_level": "direct_primary",
+      "reference_ids": ["H2"],
+      "supported_claim": "H2 directly reports five injectors placed in a cross-shaped array for a hydrogen premix/micromix experiment.",
+      "abstraction_notes": "Only the five-point cross topology comes from H2. The axis-aligned centre coordinates and freely selected pitch are this project's two-dimensional parameterization; no paper pitch or injector hardware dimensions are inferred."
+    }
+  ]
+}
