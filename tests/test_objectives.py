@@ -114,8 +114,8 @@ def test_real_single_nozzle_search_is_feasible_but_not_pareto_eligible():
     )
     assert len(candidates) == len(rows) == 2
     assert all(candidate.metrics["feasible"] for candidate in candidates)
-    assert math.isnan(rows[0]["min_center_distance"])
-    assert math.isnan(rows[0]["uniformity_score"])
+    assert rows[0]["min_center_distance"] is None
+    assert rows[0]["uniformity_score"] is None
     assert rows[0]["pareto_candidate"] is False
     assert [row["N"] for row in pareto] == [2]
     assert pareto_frontier(rows) == pareto

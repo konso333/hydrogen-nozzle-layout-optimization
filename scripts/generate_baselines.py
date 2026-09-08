@@ -18,6 +18,7 @@ from config import (  # noqa: E402
     GeometryConfig,
     ensure_output_directories,
 )
+from geometry.definitions import legacy_evaluation  # noqa: E402
 from geometry.metrics import evaluate_geometry  # noqa: E402
 from io_utils import export_coordinates, export_summary, plot_layout  # noqa: E402
 from layouts import BASELINE_LAYOUT_PARAMETERS, generate_layout  # noqa: E402
@@ -65,7 +66,7 @@ def main() -> None:
                 "layout_type": name,
                 "N": 24,
                 "layout_parameters": parameters,
-                **metrics,
+                **legacy_evaluation(metrics),
             }
         )
         legacy_rows.append(

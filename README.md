@@ -141,13 +141,23 @@ python scripts/search_variable_n.py --N-min 12 --N-max 40 --R 55 --d 4 --s-min 8
 
 ## 几何评价指标
 
-`geometry.metrics.evaluate_geometry()` 计算：
+M4 将硬约束、几何描述和优化目标分开：
 
-- 喷嘴数量；
+- `validate_layout_constraints()` 只判定数量、边界、重叠和最小间距；
+- `evaluate_geometry_metrics()` 只计算带单位、定义域和方向元数据的几何指标；
+- `evaluate_geometry()` 是保留给旧调用方的兼容组合报告；
+- `ObjectiveProfile` 显式引用指标，不另算一套数值，也不使用加权总分。
+
+完整数学定义、单位、N=0/1/2 行为、不变性和科研解释边界见 [M4_GEOMETRY_EVALUATION.md](M4_GEOMETRY_EVALUATION.md)。
+
+几何评价包括：
+
 - 最小中心距；
 - 最近邻距离均值和标准差；
-- 最大、平均中心半径及径向标准差；
-- 边界、重叠、最小间距和期望数量检查；
+- spacing/boundary 约束裕量；
+- 最大、平均中心半径、径向标准差及其尺度归一化形式；
+- 质心偏移及归一化形式；
+- 基于质心中心化二阶矩的各向异性；
 - x 轴、y 轴和原点中心对称性；
 - 最近邻距离变异系数与几何均匀性分数。
 
@@ -159,6 +169,8 @@ uniformity_score = 1 / (1 + CV_nn)
 ```
 
 分数范围为 0～1，越高表示各喷嘴的局部最近邻距离越一致。它是空间规则性的几何代理指标，不是燃烧效率。单一圆环也可能具有很高的最近邻规则性，因此分析时应同时查看中心半径、径向标准差和布局类型。
+
+数学上未定义的指标返回 `None`（JSON 中为 `null`），不伪造 0，也不让 NaN/Inf 进入 Pareto。默认 objective profile 仍严格保留原 `N + uniformity_score + min_center_distance`，所以 M0-M3 默认前沿不变；M4 新指标不会自动加入优化。
 
 ## 输出目录
 

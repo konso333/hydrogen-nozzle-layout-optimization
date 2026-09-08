@@ -8,9 +8,9 @@ from pathlib import Path
 from experiments.archive import archive_run
 from experiments.search_space import ExperimentSearchSpace
 from geometry.constraints import LayoutConstraintError, validate_layout_constraints
-from geometry.metrics import evaluate_geometry
+from geometry.metrics import evaluate_geometry_metrics as evaluate_geometry
 from json_values import json_value
-from optimization.objectives import mark_pareto_candidates
+from optimization.objectives import DEFAULT_OBJECTIVE_PROFILE, mark_pareto_candidates
 
 
 def run_batch(space: ExperimentSearchSpace, *, output_root=None, pareto=True):
@@ -38,13 +38,19 @@ def run_batch(space: ExperimentSearchSpace, *, output_root=None, pareto=True):
         if not validation["feasible"]:
             infeasible.append({"case_id": spec.case_id, "validation": validation})
             continue
-        metrics = evaluate_geometry(points, expected_N=data["N"], **data["geometry"],
-                                    symmetry_tolerance=data["symmetry_tolerance"])
+        metrics = evaluate_geometry(
+            points,
+            R=data["geometry"]["R"],
+            d=data["geometry"]["d"],
+            s_min=data["geometry"]["s_min"],
+            symmetry_tolerance=data["symmetry_tolerance"],
+        )
         feasible.append(request)
         rows.append({"case_id": spec.case_id, "legacy_candidate_id": request.legacy_candidate_id,
-                     "N": data["N"], "layout_type": data["layout_type"], **metrics})
+                     "N": data["N"], "layout_type": data["layout_type"],
+                     **metrics, **validation})
     if pareto:
-        rows = mark_pareto_candidates(rows)
+        rows = mark_pareto_candidates(rows, DEFAULT_OBJECTIVE_PROFILE)
     report = {
         "schema_version": 1, "planned": plan.planned, "unique": plan.unique,
         "duplicates": plan.duplicates, "feasible": len(feasible), "infeasible": len(infeasible),
