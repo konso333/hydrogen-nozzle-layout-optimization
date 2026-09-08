@@ -217,6 +217,17 @@ results = load_cfd_results("fluent_results.csv")
 
 ## 测试
 
+M3 提供独立、可选的 JSON 搜索配置入口；默认只报告计划数量：
+
+```bash
+python scripts/run_search_experiment.py
+python scripts/run_search_experiment.py --config examples/m3_small_search.json --execute --archive-root outputs/runs
+```
+
+搜索配置是显式实验设计快照；修改 geometry 不会自动重新推导 layout-specific 参数，需要显式修改参数组。默认 Pareto 在所有合法 unique cases 上全局计算，多个 block 也共同参与比较。
+
+配置组合、去重、异常处理及归档说明见 [M3_SEARCH_SPACE.md](M3_SEARCH_SPACE.md)。原三个生成/比较/搜索脚本保持原行为。
+
 ```bash
 pytest
 ```
