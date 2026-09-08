@@ -28,6 +28,7 @@ python -m pip install -r requirements.txt
 - `staggered_ring`：相邻圆环按 `delta_theta` 依次错位。
 - `nonuniform_ring`：显式或幂律设置非均匀环半径和各环数量。
 - `deterministic_irregular`：由确定性径向律和角度增量生成的非网格对比布局。
+- `cross_5`：opt-in 的固定五喷嘴十字拓扑；`pitch` 为项目自由参数，不推广为任意 `cross_N`。
 
 所有生成器使用统一接口：
 
@@ -248,14 +249,8 @@ pytest
 
 项目通过 `pytest.ini` 将 pytest 临时文件固定在 `outputs/test_tmp/`，避免依赖 Windows 用户临时目录的访问权限。该目录仅包含测试期间生成的临时文件。
 
-## Literature-inspired layouts
+## M5：文献与布局可追溯关系
 
-当前布局是可参数化的几何研究族。尚未为这些形式指定论文来源，也不声称它们已被文献证明最优。
+M5 用独立 JSON registry 区分 `literature_backed`、`literature_inspired` 和 `engineering_derived`，并记录 direct primary 与 secondary review 证据。新增的 `cross_5` 和 H1 七管正六角 8/10/12 mm spacing 实验均为 opt-in；citation 不参与 case ID，默认 426-case 搜索不变。
 
-TODO:
-
-- Add literature reference for sector layout
-- Add literature reference for staged/ring combustor layouts
-- Add literature reference for nonuniform injector arrangements
-
-只有在阅读并核对真实论文后，才应补充引用、适用工况和参数来源。
+文献 DOI、每类布局的保守 supported claim、真实硬件与二维点阵的差别、运行示例和 CFD 解释边界见 [M5_LITERATURE_LAYOUTS.md](M5_LITERATURE_LAYOUTS.md)。

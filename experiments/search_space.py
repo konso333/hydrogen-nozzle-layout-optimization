@@ -64,6 +64,9 @@ def _parameter_contract(spec):
 
     if kind in {"rectangular", "hexagonal"}:
         check(p["spacing"] > 0, "spacing must be positive.")
+    if kind == "cross_5":
+        check(n == 5, "N must equal 5.")
+        check(p["pitch"] > 0, "pitch must be positive.")
     if kind == "rectangular":
         rows, columns = p["rows"], p["columns"]
         check((rows is None) == (columns is None), "rows and columns must be paired.")

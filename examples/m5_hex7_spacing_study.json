@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "name": "M5 H1 seven-tube hexagonal spacing study",
+  "description": "H1 reports seven tubes in a regular hexagonal configuration with S=8/10/12 mm and S/D=2.0/2.5/3.0, corresponding numerically to D=4 mm. In this project's two-dimensional geometry abstraction, the project field d=4 mm is used to construct these spacing-ratio cases. This mapping does not imply full dimensional equivalence between project d and all physical tube, injector, or combustor hardware dimensions. R=55 mm, s_min=8 mm, tolerance, and the circular validation envelope are also project settings; this study does not reproduce the complete paper hardware or thermoacoustic experiment.",
+  "symmetry_tolerance": 1e-6,
+  "blocks": [
+    {
+      "geometry_space": {
+        "R": [55],
+        "d": [4],
+        "s_min": [8],
+        "tolerance": [1e-9]
+      },
+      "groups": [
+        {
+          "N": 7,
+          "layout_type": "hexagonal",
+          "parameter_sets": [
+            {"spacing": 8},
+            {"spacing": 10},
+            {"spacing": 12}
+          ]
+        }
+      ]
+    }
+  ]
+}
