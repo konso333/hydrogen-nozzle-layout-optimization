@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "name": "M3 small geometry and N comparison",
+  "description": "Two radii, two nozzle counts, two grid families; geometry-only comparison.",
+  "symmetry_tolerance": 1e-6,
+  "blocks": [
+    {
+      "geometry_space": {"R": [50, 55], "d": [4], "s_min": [8], "tolerance": [1e-9]},
+      "groups": [
+        {"N": [12, 18], "layout_type": "rectangular", "parameter_sets": [{"spacing": 12}]},
+        {"N": [12, 18], "layout_type": "hexagonal", "parameter_sets": [{"spacing": 12}]}
+      ]
+    }
+  ]
+}
