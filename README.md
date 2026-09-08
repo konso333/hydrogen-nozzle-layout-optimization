@@ -226,7 +226,9 @@ from optimization.cfd_metrics import load_cfd_results
 results = load_cfd_results("fluent_results.csv")
 ```
 
-未知 CFD 指标应在 CSV 中留空，加载后保持为 `None`。未来可用 `candidate_id` 将 CFD 结果与 `variable_n_results.csv` 中的几何候选关联，再建立几何与物理性能联合优化。
+未知 CFD 指标应在 CSV 中留空，加载后保持为 `None`。旧 `candidate_id` 只能在明确的 run 内经唯一映射关联几何，不能区分多工况或多次执行。
+
+M6 的独立 `cfd` 包提供带单位的工况规格、确定性 `cfd_case_id`、显式 case 选择、交接包和按 `attempt_id` 验证的结果回填；M2 几何身份及旧 CSV 接口保持不变。使用 `python scripts/cfd_handoff_example.py` 可运行只包含 null 结果的 synthetic/test-only 示例。完整 API、指标公式、状态与重跑边界见 [M6_CFD_HANDOFF.md](M6_CFD_HANDOFF.md)。本阶段不运行 Fluent。
 
 ## 测试
 
