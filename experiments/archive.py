@@ -17,7 +17,8 @@ from config import OUTPUT_ROOT, GeometryConfig
 from experiments.provenance import collect_provenance
 from experiments.spec import SCHEMA_VERSION, CaseSpec
 from geometry.constraints import validate_layout_constraints
-from geometry.metrics import evaluate_geometry
+from geometry.definitions import LEGACY_METRIC_KEYS
+from geometry.metrics import evaluate_geometry_metrics
 from io_utils import export_coordinates, plot_layout
 from json_values import json_value
 from optimization.cfd_metrics import CFD_FIELDS
@@ -59,8 +60,8 @@ class GeneratedCase:
 
 
 def _report(value):
-    # N=1 has undefined nearest-neighbour statistics. Strict JSON uses null;
-    # this is a missing result, never a zero or an eligible Pareto objective.
+    # Undefined geometry metrics are explicit None; keep this conversion for
+    # older callers that may still supply non-finite result values.
     return json_value(value, nonfinite="null")
 
 
@@ -69,9 +70,13 @@ def generate_case(spec: CaseSpec) -> GeneratedCase:
     data = spec.normalized_spec
     points = spec.generate()
     validation = validate_layout_constraints(points, N=data["N"], **data["geometry"])
-    evaluated = evaluate_geometry(points, expected_N=data["N"], **data["geometry"],
-                                  symmetry_tolerance=data["symmetry_tolerance"])
-    metrics = {key: value for key, value in evaluated.items() if key not in validation}
+    metrics = evaluate_geometry_metrics(
+        points,
+        R=data["geometry"]["R"],
+        d=data["geometry"]["d"],
+        s_min=data["geometry"]["s_min"],
+        symmetry_tolerance=data["symmetry_tolerance"],
+    )
     return GeneratedCase(spec, points, _report(validation), _report(metrics))
 
 
@@ -251,6 +256,24 @@ def _metrics_match(first, second):
     return first == second
 
 
+def _archived_metrics_match(generated, archived):
+    """Accept the complete M4 set or the exact pre-M4 metric inventory.
+
+    This one-way compatibility rule lets existing M2 archives remain
+    verifiable. A newly written M4 archive cannot silently lose one metric:
+    any set other than the exact legacy set requires an exact key match.
+    """
+
+    if not isinstance(generated, dict) or not isinstance(archived, dict):
+        return False
+    if set(archived) == set(LEGACY_METRIC_KEYS):
+        return _metrics_match(
+            {key: generated.get(key) for key in LEGACY_METRIC_KEYS},
+            archived,
+        )
+    return _metrics_match(generated, archived)
+
+
 def verify_case(case_manifest: str | Path) -> dict:
     """Check one case's local artifacts and regeneration, not its run provenance.
 
@@ -282,7 +305,7 @@ def verify_case(case_manifest: str | Path) -> dict:
         "coordinate_metadata_match": coordinate_metadata_match,
         "validation_match": generated.validation == data["validation"] == json.loads(
             paths["validation"].read_text(encoding="utf-8")),
-        "metrics_match": _metrics_match(generated.metrics, data["metrics"]) and
+        "metrics_match": _archived_metrics_match(generated.metrics, data["metrics"]) and
                          _metrics_match(data["metrics"], json.loads(
                              paths["metrics"].read_text(encoding="utf-8"))),
         "file_hashes_match": all(_sha256(target) == data["file_sha256"][key]

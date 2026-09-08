@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from config import GeometryConfig
 from geometry.constraints import LayoutConstraintError
+from geometry.definitions import legacy_evaluation
 from geometry.metrics import evaluate_geometry
 from json_values import json_value
 from layouts import generate_layout
@@ -40,7 +41,9 @@ class LayoutCandidate:
                 sort_keys=True,
                 default=json_value,
             ),
-            **self.metrics,
+            # Preserve the pre-M4 CSV/search row contract. The complete M4
+            # metrics remain available on candidate.metrics and in M2/M3.
+            **legacy_evaluation(self.metrics),
         }
 
 

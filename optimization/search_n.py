@@ -11,7 +11,7 @@ from optimization.layout_search import (
     default_layout_specs,
     search_layouts_for_n,
 )
-from optimization.objectives import mark_pareto_candidates
+from optimization.objectives import DEFAULT_OBJECTIVE_PROFILE, mark_pareto_candidates
 from validation import InputValidationError, require_count
 
 
@@ -36,6 +36,6 @@ def search_variable_n(
         candidates.extend(search_layouts_for_n(N, config, spec_factory(N, config)))
 
     rows = [candidate.summary_row() for candidate in candidates]
-    marked_rows = mark_pareto_candidates(rows)
+    marked_rows = mark_pareto_candidates(rows, DEFAULT_OBJECTIVE_PROFILE)
     pareto_rows = [row for row in marked_rows if row["pareto_candidate"]]
     return candidates, marked_rows, pareto_rows
