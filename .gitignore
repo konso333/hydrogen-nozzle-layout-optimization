@@ -3,6 +3,13 @@
 *.pyc
 *.pyo
 .pytest_cache/
+*.cas
+*.cas.h5
+*.dat
+*.dat.h5
+*.msh
+*.msh.h5
+*.mesh
 .venv/
 venv/
 
