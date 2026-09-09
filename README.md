@@ -232,6 +232,8 @@ M6 的独立 `cfd` 包提供带单位的工况规格、确定性 `cfd_case_id`�
 
 M7 的独立 `fluent` 包将已核验 M6 包转换成五层参数映射、几何中间文件、注释式 journal 模板和 dry-run 报告。运行 `python scripts/fluent_prepare_example.py` 可生成 synthetic/test-only 示例；不会启动 Fluent，未确认项保持 unresolved，模板始终不可直接执行。API、来源追踪、静态核验与首次实际运行的缺项见 [M7_FLUENT_AUTOMATION.md](M7_FLUENT_AUTOMATION.md)。
 
+M8A 的独立 `fluent_pilot` 包为 H1 hex7 S10 提供本机环境预检、科研输入门控和结构化启动计划。使用 `python scripts/fluent_pilot_preflight.py --help` 查看入口；本机路径仅从 CLI/环境变量注入，缺项保持 unresolved，执行权限固定为 false，不启动 Fluent 或创建 attempt。详见 [M8A_FLUENT_PILOT_PREFLIGHT.md](M8A_FLUENT_PILOT_PREFLIGHT.md)。
+
 ## 测试
 
 M3 提供独立、可选的 JSON 搜索配置入口；默认只报告计划数量：
