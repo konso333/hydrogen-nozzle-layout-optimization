@@ -1,0 +1,279 @@
+{
+  "schema_version": 1,
+  "purpose": "shakedown",
+  "source": "user-confirmed M8B-1 engineering baseline; not literature H1",
+  "confirmed_baseline": {
+    "operating_condition": {
+      "extras": {
+        "fuel_inlet": {
+          "boundary_type": "Velocity Inlet",
+          "velocity": {
+            "value": 10,
+            "unit": "m/s"
+          },
+          "temperature": {
+            "value": 300,
+            "unit": "K"
+          },
+          "mass_fractions": {
+            "H2": {
+              "value": 1,
+              "unit": "1"
+            }
+          },
+          "turbulence_intensity": {
+            "value": 0.05,
+            "unit": "1"
+          },
+          "hydraulic_diameter": {
+            "value": 1.2,
+            "unit": "mm"
+          }
+        },
+        "oxidizer_inlet": {
+          "boundary_type": "Velocity Inlet",
+          "velocity": {
+            "value": 10,
+            "unit": "m/s"
+          },
+          "temperature": {
+            "value": 300,
+            "unit": "K"
+          },
+          "mass_fractions": {
+            "O2": {
+              "value": 0.4,
+              "unit": "1"
+            },
+            "N2": {
+              "value": 0.6,
+              "unit": "1"
+            }
+          },
+          "turbulence_intensity": {
+            "value": 0.05,
+            "unit": "1"
+          },
+          "hydraulic_diameter": {
+            "value": 10,
+            "unit": "mm"
+          }
+        },
+        "oxidizer_name": "O2-N2 oxidizer mixture",
+        "outlet": {
+          "boundary_type": "Pressure Outlet",
+          "gauge_pressure": {
+            "value": 0,
+            "unit": "Pa"
+          }
+        },
+        "wall": {
+          "velocity_condition": "no-slip",
+          "thermal_condition": "adiabatic"
+        },
+        "operating_pressure": {
+          "value": 101325,
+          "unit": "Pa"
+        }
+      }
+    },
+    "simulation_config": {
+      "solver": "Fluent",
+      "dimensionality": "3D",
+      "turbulence_model": "Realizable k-epsilon",
+      "combustion_model": "Eddy-Dissipation Model",
+      "extras": {
+        "nozzle_geometry": {
+          "D": {
+            "value": 14,
+            "unit": "mm"
+          },
+          "L": {
+            "value": 30,
+            "unit": "mm"
+          },
+          "Da": {
+            "value": 10,
+            "unit": "mm"
+          },
+          "Db": {
+            "value": 4,
+            "unit": "mm"
+          },
+          "Lb": {
+            "value": 8,
+            "unit": "mm"
+          },
+          "Rb": {
+            "value": 2,
+            "unit": "mm"
+          },
+          "dH": {
+            "value": 1.2,
+            "unit": "mm"
+          },
+          "n": {
+            "value": 8,
+            "unit": "1"
+          },
+          "alpha": {
+            "value": 90,
+            "unit": "deg"
+          },
+          "XH": {
+            "value": 4,
+            "unit": "mm"
+          }
+        },
+        "pressure_based": true,
+        "energy_equation": true,
+        "species_transport": true,
+        "volumetric_reactions": true,
+        "global_reaction": "2 H2 + O2 -> 2 H2O",
+        "edm_constants": {
+          "A": {
+            "value": 4,
+            "unit": "1"
+          },
+          "B": {
+            "value": 0.5,
+            "unit": "1"
+          }
+        }
+      }
+    }
+  },
+  "execution_baseline": {
+    "initialization": "Hybrid Initialization",
+    "max_iterations": {
+      "value": 500,
+      "unit": "1"
+    },
+    "convergence_status": "not_assessed",
+    "mesh_classification": "engineering shakedown mesh"
+  },
+  "hydraulic_diameter_provenance": {
+    "fuel_inlet": {
+      "kind": "derived_value",
+      "source": "derived_from_confirmed_circular_hole_diameter_dH",
+      "value": 1.2,
+      "unit": "mm",
+      "required_package_topology": "circular"
+    },
+    "oxidizer_inlet": {
+      "kind": "derived_value",
+      "source": "derived_from_confirmed_circular_channel_diameter_Da",
+      "value": 10,
+      "unit": "mm",
+      "required_package_topology": "circular"
+    }
+  },
+  "future_research_ranges": {
+    "D": {
+      "interval": [
+        12,
+        18
+      ],
+      "unit": "mm"
+    },
+    "L": {
+      "interval": [
+        25,
+        40
+      ],
+      "unit": "mm"
+    },
+    "Da": {
+      "interval": [
+        8,
+        12
+      ],
+      "unit": "mm"
+    },
+    "Db": {
+      "choices": [
+        3,
+        4,
+        5
+      ],
+      "unit": "mm"
+    },
+    "Lb": {
+      "choices": [
+        6,
+        8,
+        10
+      ],
+      "unit": "mm"
+    },
+    "Rb": {
+      "interval": [
+        1.5,
+        2.5
+      ],
+      "unit": "mm"
+    },
+    "dH": {
+      "choices": [
+        0.8,
+        1.2,
+        1.6
+      ],
+      "unit": "mm"
+    },
+    "n": {
+      "choices": [
+        6,
+        8
+      ],
+      "unit": "1"
+    },
+    "alpha": {
+      "choices": [
+        60,
+        75,
+        90
+      ],
+      "unit": "deg"
+    },
+    "XH": {
+      "choices": [
+        3,
+        4,
+        5
+      ],
+      "unit": "mm"
+    }
+  },
+  "required_execution_inputs": [
+    "geometry_or_mesh_input",
+    "computational_domain",
+    "actual_boundary_mapping",
+    "reviewed_physics_and_numerics",
+    "verified_launch_contract",
+    "reviewed_executable_journal",
+    "explicit_authorization"
+  ],
+  "unvalidated": [
+    "production_mesh",
+    "mesh_independence",
+    "final_mesh_size",
+    "final_cell_count",
+    "final_mesh_quality_acceptance",
+    "NOx_model",
+    "NOx_result_contract",
+    "flame_length_definition",
+    "flame_root_definition",
+    "recirculation_zone_definition",
+    "blow_off_criterion",
+    "flashback_criterion",
+    "experimental_validation",
+    "AI_optimization"
+  ],
+  "notes": [
+    "Hydraulic diameters are derived from dH and Da, not independent measurements. Both inlet cross-sections must be explicitly confirmed circular in M6 inlet_topology and the M8A item review before execution; annular or unconfirmed topology is blocked.",
+    "No full computational domain or steady/transient choice is inferred.",
+    "M2 radius 7 mm describes only the nozzle footprint.",
+    "The preparation pressure_loss subset is a handoff requirement, not a verified result mapping."
+  ]
+}

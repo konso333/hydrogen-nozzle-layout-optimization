@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "run_id": null,
+    "case_id": null,
+    "cfd_case_id": null,
+    "automation_digest": null
+  },
+  "launch": {
+    "arguments": [],
+    "executable_sha256": null,
+    "release": "2025 R2",
+    "dimension": "3D",
+    "precision": "double",
+    "evidence_reference": null
+  },
+  "adapter_review": {
+    "input_sha256": null,
+    "journal_sha256": null,
+    "input_mode": "existing_mesh",
+    "dimension": "3D",
+    "boundary_mapping": {
+      "fuel_inlet": [],
+      "oxidizer_inlet": [],
+      "outlet": [],
+      "wall": []
+    },
+    "geometry_evidence": null,
+    "physics_evidence": null,
+    "mesh_evidence": null,
+    "numerics_evidence": null,
+    "output_evidence": null,
+    "mesh_classification": "engineering shakedown mesh"
+  },
+  "expected_outputs": [],
+  "numerical_settings": {
+    "initialization": "Hybrid Initialization",
+    "max_iterations": {
+      "value": 500,
+      "unit": "1"
+    },
+    "pressure_velocity_coupling": null,
+    "discretization": null,
+    "residuals": null,
+    "mass_balance_monitor": null,
+    "temperature_monitor": null,
+    "species_monitor": null,
+    "pressure_loss_monitor": null,
+    "convergence_assessment": null
+  },
+  "resource_review": {
+    "minimum_free_bytes": null,
+    "maximum_processes": null,
+    "license_evidence": null,
+    "resource_evidence": null
+  },
+  "diagnostics": null
+}
