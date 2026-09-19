@@ -234,6 +234,8 @@ M7 的独立 `fluent` 包将已核验 M6 包转换成五层参数映射、几何
 
 M8A 的独立 `fluent_pilot` 包为 H1 hex7 S10 提供本机环境预检、科研输入门控和结构化启动计划。使用 `python scripts/fluent_pilot_preflight.py --help` 查看入口；本机路径仅从 CLI/环境变量注入，缺项保持 unresolved，执行权限固定为 false，不启动 Fluent 或创建 attempt。详见 [M8A_FLUENT_PILOT_PREFLIGHT.md](M8A_FLUENT_PILOT_PREFLIGHT.md)。
 
+M8B 的独立 `fluent_execution` 包提供 3D 单喷嘴工程试运行框架。`python scripts/fluent_execute_pilot.py --prepare-example` 只生成准备包；默认 inspect/dry-run 不创建 attempt 或启动 Fluent。真实执行须另行提供三维 mesh/case、完整审阅后的 journal、本机启动契约及显式 `--execute`。正式指标映射仍未解决，工程结果不进入科研优化数据；H1 与 M8A 原门控不变。详见 [M8B_FLUENT_EXECUTION.md](M8B_FLUENT_EXECUTION.md)。
+
 ## 测试
 
 M3 提供独立、可选的 JSON 搜索配置入口；默认只报告计划数量：
