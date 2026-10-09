@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "purpose": "engineering_coldflow",
+  "input": {
+    "case_file": null,
+    "data_file": null,
+    "case_sha256": null,
+    "data_sha256": null
+  },
+  "fluent": {
+    "executable": null,
+    "product_version": "25.2.0",
+    "processes": 2,
+    "license_product": "premium",
+    "license_server": null,
+    "start_timeout_seconds": 120
+  },
+  "output_root": null,
+  "model": "laminar",
+  "boundaries": {
+    "fuel_inlet": "fuel_inlet",
+    "oxidizer_inlet": "oxidizer_inlet",
+    "outlet": "outlet",
+    "wall": "wall"
+  },
+  "expected_conditions": {
+    "fuel_velocity_m_s": 10,
+    "oxidizer_velocity_m_s": 10,
+    "fuel_temperature_K": 300,
+    "oxidizer_temperature_K": 300,
+    "oxidizer_o2_mass_fraction": 0.4,
+    "outlet_gauge_pressure_Pa": 0,
+    "backflow_temperature_K": 300,
+    "operating_pressure_Pa": 101325
+  },
+  "iterations": {
+    "maximum": 500,
+    "block_size": 50,
+    "minimum": 150,
+    "consecutive_passing_blocks": 2
+  },
+  "convergence": {
+    "scaled_residuals": {
+      "continuity": 0.0001,
+      "x-velocity": 0.0001,
+      "y-velocity": 0.0001,
+      "z-velocity": 0.0001,
+      "energy": 0.000001,
+      "h2": 0.0001,
+      "o2": 0.0001,
+      "h2o": 0.0001
+    },
+    "relative_mass_imbalance": 0.005,
+    "h2_relative_convective_imbalance": 0.005,
+    "relative_pressure_drop_change": 0.01
+  },
+  "timeout_seconds": 1800,
+  "minimum_free_bytes": 1073741824
+}

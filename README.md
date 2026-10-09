@@ -236,6 +236,10 @@ M8A 的独立 `fluent_pilot` 包为 H1 hex7 S10 提供本机环境预检、科�
 
 M8B 的独立 `fluent_execution` 包提供 3D 单喷嘴工程试运行框架。`python scripts/fluent_execute_pilot.py --prepare-example` 只生成准备包；默认 inspect/dry-run 不创建 attempt 或启动 Fluent。真实执行须另行提供三维 mesh/case、完整审阅后的 journal、本机启动契约及显式 `--execute`。正式指标映射仍未解决，工程结果不进入科研优化数据；H1 与 M8A 原门控不变。详见 [M8B_FLUENT_EXECUTION.md](M8B_FLUENT_EXECUTION.md)。
 
+已有冷态 case/data 的层流试算可使用 `python scripts/fluent_coldflow.py --config .local/coldflow.json --inspect`。
+该独立工程入口默认只检查；显式 `--execute` 后分批求解、保存、监测并退出。
+通用配置模板不包含本机路径，原 M8B/M8A 门控与基准保持不变。配置与使用见 [FLUENT_COLDFLOW.md](FLUENT_COLDFLOW.md)。
+
 ## 测试
 
 M3 提供独立、可选的 JSON 搜索配置入口；默认只报告计划数量：
