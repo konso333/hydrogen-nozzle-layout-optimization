@@ -404,6 +404,59 @@ python scripts/build_engineering_cad.py --handoff path/to/engineering_handoff.js
 仅复制独立流道不构成喷嘴间相互作用的计算域；三个实际安装尺寸仍未确认，演示阵列不作为实际工程方案。
 CAD 文件和运行报告保存于本地忽略目录，不随代码上传 GitHub。
 
+### 第十步：关联阵列 CAD 边界面
+
+[engineering_boundaries.py](engineering_boundaries.py) 在第九步 CAD 完整复核后，
+将明确标注的单喷嘴边界关联到每个副本，同时核对 STEP 和 BREP。
+原 M0–M8 接口、CFD ID 和既有封存文件不变，继续使用可选 Gmsh 4.15.2 依赖。
+此步处理独立内部流道，不添加公共燃烧室或供给腔。
+
+默认只检查上游，不初始化 CAD；显式 `--inventory` 会读取源 STEP，打印边界配置草稿：
+
+```powershell
+python scripts/prepare_engineering_boundaries.py --handoff path/to/engineering_handoff.json --automation path/to/engineering_automation_manifest.json --template-profile .local/internal_flow_template.json --placement path/to/cad_placement_manifest.json --inventory
+```
+
+将该 JSON 保存为 UTF-8 的 `.local/boundary_labels.json`。
+通用空模板见 [engineering_boundary_labels.template.json](examples/engineering_boundary_labels.template.json)。
+清单中的单位固定为 **mm**，即使源 STEP 使用 m，面积和质心也已转换为 mm²/mm。
+每个面包含 `surface_type`、`area_mm2`、`centre_of_mass_mm` 和初始为 `null` 的 `role`。
+根据实际流道和边界证据，将所有面的 `role` 分别填写为 `fuel_inlet`、`oxidizer_inlet`、`outlet`、`wall`，
+并在 `classification_note` 记录标注依据；四类均须非空。不要默认把未识别的面归为壁面。
+源 STEP 的 SHA-256 必须匹配；外径、旧 face ID 或二维坐标不作为边界物理含义的证明。
+
+准备带边界的几何包，输出必须是所有源目录以外的新目录：
+
+```powershell
+python scripts/prepare_engineering_boundaries.py --handoff path/to/engineering_handoff.json --automation path/to/engineering_automation_manifest.json --template-profile .local/internal_flow_template.json --placement path/to/cad_placement_manifest.json --cad-build path/to/cad_build_manifest.json --boundary-profile .local/boundary_labels.json --prepare --output-dir outputs/engineering_boundaries/new_array
+```
+
+适配器用面类型、面积、质心唯一匹配源面，按已核验的刚体变换关联每个副本，
+检查全部边界恰好覆盖一次、实体间不共用边界面、各类边界的连通面片数量保持一致。
+无法唯一识别的面对称情况、遗漏、重复、非法角色或几何不一致均拒绝发布成功包。
+面积容差为 `max(1e-7 mm², 面积 × 1e-7)`，质心各坐标容差为 `1e-6 mm`。
+连通面片数量与 CAD 面数分别记录，不能把周期曲面分片数直接当作物理孔数。
+
+输出 `array.brep` 原样副本、`array_boundaries.geo`、`boundary_mapping.json` 和最后发布的 `boundary_manifest.json`。
+JSON 分别记录两种 CAD 的逐喷嘴/逐面关联；面 tag 只适用于该文件、内核版本和导入方式。
+`.geo` 以相对路径加载同目录 BREP，建立四类命名 Physical Surface 和 `internal_fluid` Physical Volume；
+发布前重新加载它并检查分组成员与面几何。不要把 STEP 的 tag 套入 BREP，或修改/搬走其中单个文件。
+加载文件没有网格、求解或外部进程指令。几何仍以 mm 表示，后续网格导出 Fluent 时需要明确单位转换。
+
+只读复核会重新验证全部上游 CAD，再重做两种文件的面关联、加载分组，比较完整报告。
+重算输出校验和不能掩盖映射修改；修改后的 `.geo` 在解析前即被拒绝。
+
+```powershell
+python scripts/prepare_engineering_boundaries.py --handoff path/to/engineering_handoff.json --automation path/to/engineering_automation_manifest.json --template-profile .local/internal_flow_template.json --placement path/to/cad_placement_manifest.json --cad-build path/to/cad_build_manifest.json --boundary-profile .local/boundary_labels.json --verify path/to/boundary_manifest.json
+```
+
+成功退出 `0`，错误退出 `2`；写文件期间失败会尝试标记 `failed`，已有目录拒绝覆盖。
+复杂 CAD 的上游复核可能耗时数分钟。`boundary_mapping_ready=true` 仅表示按提供的标签完成几何关联，
+`physical_boundary_roles_confirmed` 和 `internal_passage_identity_checked` 仍为 `false`，程序不独立证明标签语义正确。
+`mesh_generated`、`ready_to_execute`、`scientific_eligible` 均为 `false`，不创建 Fluent attempt 或 CFD 数据。
+当前三个真实安装尺寸仍待确认；本地演示使用真实流道和测试排布，不能当作最终工程阵列。
+边界标签、本地 CAD 和输出报告保留在 D 盘忽略目录，GitHub 只上传通用代码、模板、测试与文档。
+
 ## 安装
 
 建议使用 Python 3.10 或更高版本：

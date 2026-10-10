@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "kind": "single_nozzle_boundary_labels",
+  "source_sha256": null,
+  "length_unit": "mm",
+  "classification_note": null,
+  "faces": []
+}
