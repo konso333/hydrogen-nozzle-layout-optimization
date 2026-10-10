@@ -35,9 +35,10 @@ python scripts/inspect_engineering_config.py --config examples/engineering_nozzl
 显式的 `0` 表示零间隙，不能代替尚未确定的 `null`。
 `parameters_complete=true` 仅表示输入齐全，不证明已能容纳目标 N、已完成制造校核或具有更优燃烧性能。
 
-第一步建立配置和检查入口；第二步接入现有几何约束校验，尚未连接自动排布生成、N 搜索或 M2/M3 归档。
+第一步建立配置和检查入口；第二步接入现有几何约束校验；第三步接入单个工程排布生成与独立导出。
+尚未接入工程 N 搜索或 M2/M3 归档。
 这份工程配置不能作为 `run_search_experiment.py --config` 的 M3 搜索设计使用；
-后续会在保留实际安装半径与余量记录的基础上适配排布生成和搜索接口。
+工程生成入口保留实际安装半径与余量记录，后续再适配搜索接口。
 
 第二步可只读检查已有坐标。先在工程配置副本中明确填写三个待定参数，再运行：
 
@@ -63,6 +64,41 @@ M2 格式要求 `z_mm=0`，不自动投影非平面坐标。
 
 坐标校验通过退出码为 `0`，几何约束失败为 `1`，配置不完整或输入错误为 `2`。
 检查过程不修改坐标文件、不保存新排布、不运行 Fluent；旧几何接口和历史结果保持原样。
+
+### 第三步：生成单个工程排布
+
+先在工程配置副本中填写已确认的安装半径、装配间隙和壁面余量，再准备布局参数 JSON。
+例如矩形布局的参数文件格式如下；这里的 **16 mm 节距和 4×6 数量组合仅演示格式，不是已确定的工程方案**：
+
+```json
+{"spacing": 16, "rows": 4, "columns": 6}
+```
+
+明确提供 N、布局和参数文件后运行（文件路径需替换为自己的副本）：
+
+```bash
+python scripts/generate_engineering_layout.py --config path/to/engineering.json --layout rectangular --N 24 --parameters path/to/parameters.json --output-dir outputs/engineering_layouts/new_run
+```
+
+支持现有内置矩形、三角晶格、环形、扇形等生成器；参数沿用各生成器接口，长度单位 mm、角度单位 rad。
+固定 N=24 的旧 baseline 仍使用其原有布局参数；需要改变节距、环半径或 N 时选通用布局类型。
+入口复用 [engineering_layout.py](engineering_layout.py)、现有 `CaseSpec` 和几何校验，不修改旧生成算法。
+安装区域或间隙仍为 `null` 时直接拒绝生成；也不会自动放大安装区域、降低间隙、改变 N 或重用旧坐标。
+
+生成成功后，新目录包含：
+
+- `coordinates.csv`：沿用 `nozzle_id,x_mm,y_mm,z_mm` 格式，单位 mm，`z_mm=0`。
+- `layout.png`：实体喷嘴按真实外径绘制，分别标注安装边界、壁面余量后的外缘极限和允许中心边界。
+- `generation.json`：原工程配置、完整解析后的生成参数、几何编号、校验结果、实测间隙与余量，以及 Git/运行环境记录。
+
+`geometry_case_id` 沿用 M2 的几何规格编号，标识的是扣除壁面余量后的几何输入；
+不同实际安装半径和壁面余量可能得到同一编号，必须同时保留 `configuration`，不能把该编号当作完整工程或 CFD 工况身份。
+`geometry_case_spec` 可通过现有 `CaseSpec.from_normalized(...).generate()` 重现坐标。
+这些文件属于独立工程几何预览，不是 M2/M3 归档，也不证明制造或 CFD 就绪。
+
+输出目录必须尚不存在，重复运行应换新目录。几何不可行退出码为 `1`，配置不完整、参数或输出错误为 `2`，成功为 `0`。
+配置和几何失败不会创建输出目录；`generation.json` 最后写入，若导出中途失败，应将该目录视为不完整结果并选择新目录重试。
+本入口不运行 Fluent。当前项目模板的三个待定参数保持 `null`，因此还不能据此生成实际工程阵列。
 
 ## 安装
 
