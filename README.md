@@ -4,6 +4,41 @@
 
 本程序不会根据几何指标推断氢转化率、燃烧完全度、温度场、压损或壁面热流，也不会自动生成任何 CFD 数值。因此，输出中的“Pareto 候选”仅表示几何层候选，不表示燃烧性能最优。
 
+## 14 mm 实体喷嘴：工程参数准备（第一步）
+
+最新 CAD 喷嘴外径已确认为 **14 mm**。独立配置
+[examples/engineering_nozzle_14mm.json](examples/engineering_nozzle_14mm.json)
+记录这一尺寸；安装区域半径、喷嘴外缘之间的最小间隙、喷嘴外缘到区域边界的最小余量尚未确定，均显式保存为 `null`。
+历史 `GeometryConfig()` 和旧实验的 `d=4 / R=55 / s_min=8` 保持原值，不代表最新喷嘴的工程安装要求。
+
+只读检查：
+
+```bash
+python scripts/inspect_engineering_config.py --config examples/engineering_nozzle_14mm.json
+```
+
+当前输出 `parameters_complete=false`，并列出三个待定参数；不生成坐标、写结果或调用 Fluent。
+需要检查参数是否齐全时追加 `--require-complete`，待定参数存在时退出码为 `2`。
+输入格式或数值非法也会报错，不会回退到旧默认值。
+
+所有尺寸字段单位均为 mm：
+
+| 字段 | 含义 | 当前值 |
+| --- | --- | --- |
+| `nozzle_outer_diameter_mm` | 实体喷嘴外径，不是内部流道直径 | 14 |
+| `installation_radius_mm` | 圆形有效安装区域半径 | null |
+| `nozzle_edge_gap_mm` | 两个喷嘴外缘之间的最小间隙，不是中心距 | null |
+| `wall_clearance_mm` | 喷嘴外缘到安装区域边界的最小余量 | null |
+
+明确提供参数后，检查器计算：`最小中心距 = 外径 + 外缘间隙`，
+`最大中心半径 = 安装区域半径 - 外径/2 - 壁面余量`。
+显式的 `0` 表示零间隙，不能代替尚未确定的 `null`。
+`parameters_complete=true` 仅表示输入齐全，不证明已能容纳目标 N、已完成制造校核或具有更优燃烧性能。
+
+第一步只建立配置和检查入口，尚未连接排布生成、N 搜索或 M2/M3 归档。
+这份工程配置不能作为 `run_search_experiment.py --config` 的 M3 搜索设计使用；
+后续会在保留实际安装半径与余量记录的基础上适配现有生成和验证接口。
+
 ## 安装
 
 建议使用 Python 3.10 或更高版本：

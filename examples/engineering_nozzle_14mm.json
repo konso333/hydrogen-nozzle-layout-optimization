@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "name": "14 mm nozzle array engineering preparation",
+  "nozzle_outer_diameter_mm": 14,
+  "installation_radius_mm": null,
+  "nozzle_edge_gap_mm": null,
+  "wall_clearance_mm": null
+}
