@@ -1,0 +1,2 @@
+# Optional CAD-only kernel; Fluent/PyFluent is not required for this step.
+gmsh==4.15.2

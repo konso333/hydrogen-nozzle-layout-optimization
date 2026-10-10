@@ -39,6 +39,7 @@ python scripts/inspect_engineering_config.py --config examples/engineering_nozzl
 第四步接入同一工程安装条件下的可变 N 搜索；第五步接入选中候选的 M2 几何归档与工程附加记录；
 第六步接入保留实际安装条件的 M6 CFD 交接；第七步接入区分安装尺寸与流体域的 Fluent 准备文件；
 第八步接入内部流道 STEP 模板的单位、坐标基与逐喷嘴定位清单。
+第九步用 CAD 内核实际复制这些流道，并导出、重新读取和复核阵列 STEP/BREP。
 这份工程配置不能作为 `run_search_experiment.py --config` 的 M3 搜索设计使用；
 工程生成与搜索入口均保留实际安装半径与余量记录。
 
@@ -344,6 +345,64 @@ python scripts/prepare_engineering_cad.py --handoff path/to/engineering_handoff.
 不会消除第七步的流道、边界、网格或执行待定项。后续仍需 CAD 内核实际复制流道、检查交叠与包容、
 按计算范围构建公共腔体/供给空间、重新关联实际边界并划网格；独立流道复制清单不证明喷嘴之间存在流动相互作用。
 工程安装半径和两种余量的三个 `null` 仍保留，当前不能以演示尺寸生成实际阵列。
+
+### 第九步：实际构建独立流道阵列 CAD
+
+[engineering_cad_build.py](engineering_cad_build.py) 在第八步清单核验通过后，
+用 Gmsh/OpenCASCADE 导入真实 STEP 并复制内部流道。此步需要可选依赖：
+
+```powershell
+python -m pip install -r requirements-engineering-cad.txt
+```
+
+适配器固定使用 Gmsh 4.15.2，在进程内运行 CAD 内核、不打开 GUI，限制为单线程；
+拒绝复用或关闭调用者已经初始化的 Gmsh 会话。原 M0–M8 入口和第八步清单协议保持原样。
+实现参照 [Gmsh 官方 STEP 导入与单位说明](https://gmsh.info/doc/texinfo/#t20)。
+
+先检查上游输入，默认行为与显式 `--inspect` 相同；不初始化 CAD 内核或创建输出目录：
+
+```powershell
+python scripts/build_engineering_cad.py --handoff path/to/engineering_handoff.json --automation path/to/engineering_automation_manifest.json --template-profile .local/internal_flow_template.json --placement path/to/cad_placement_manifest.json
+```
+
+明确构建 CAD，输出必须为新目录，且位于所有源目录外：
+
+```powershell
+python scripts/build_engineering_cad.py --handoff path/to/engineering_handoff.json --automation path/to/engineering_automation_manifest.json --template-profile .local/internal_flow_template.json --placement path/to/cad_placement_manifest.json --build --output-dir outputs/engineering_cad_build/new_array
+```
+
+模板必须能被 CAD 内核读为恰好一个具有有限正体积的三维实体。
+导入统一转换为 mm，随后使用刚体旋转和平移应用第八步变换，避免重复执行 m→mm 缩放。
+每个副本核对体积、质心、面数和总数量。所有副本方向相同，因此对首个副本进行外径圆柱包容测试，
+结合已核验的坐标外缘约束限定各流道的安装投影；此测试使用圆柱布尔差集，不能以 CAD 轴对齐包围盒代替圆形边界。
+外径声明与真实流道不相容、额外实体或无效 BRep 会被拒绝，不会用空壳 STEP 冒充已建模。
+
+输出包括 `array.step`、`array.brep`、`cad_build_report.json` 和最后发布的 `cad_build_manifest.json`。
+报告记录来源摘要、单位、逐喷嘴体积/质心/包围盒/面数、总流道体积以及检查容差。
+两种 CAD 文件导出后均重新读取，按质心唯一匹配每个喷嘴，并核对体积、面数和实体对称差的体积。
+长度核对容差为 `1e-6 mm`；体积差容差为 `max(1e-7 mm³, 原流道体积 × 1e-8)`，
+这些是 CAD 几何检查容差，不是网格验收或求解收敛标准。
+OpenCASCADE 可能向标准输出写入 STEP 转换日志，CLI 的最终 JSON 位于日志之后。
+本机验收使用正常控制台输出；曾在 PowerShell `*>` 重定向下于 Gmsh DLL 加载阶段出现原生异常，
+因此没有把该重定向方式作为已验收的日志接口。原生内核崩溃无法由 Python 捕获，未完成目录须重新复核。
+
+完成后的只读复核会从原始上游重新在内存中构建阵列，再读取两个输出文件比较几何；
+不修改文件、不重写 CAD，也不相信仅重算过的校验和：
+
+```powershell
+python scripts/build_engineering_cad.py --handoff path/to/engineering_handoff.json --automation path/to/engineering_automation_manifest.json --template-profile .local/internal_flow_template.json --placement path/to/cad_placement_manifest.json --verify path/to/cad_build_manifest.json
+```
+
+成功退出 `0`，输入、依赖、构建或复核错误退出 `2`。构建/复核较复杂的真实 STEP 可能耗时数分钟。
+依赖或 BRep 检查失败时不创建输出目录；写文件阶段失败会尝试标记 `failed`，标记也无法写入时可能留下不完整目录。
+保留失败目录并更换输出位置重试，以完整复核为准；已有目录始终拒绝覆盖。
+
+`cad_built=true` 只表示独立流道副本已构建并通过上述检查，不能证明输入实体已正确选取全部氢气/氧化剂通道。
+`internal_passage_identity_checked`、`shared_chamber_built`、`boundary_mapping_ready`、`mesh_generated` 和
+`ready_to_execute` 仍为 `false`，也不会改变 M6 CFD ID、创建 attempt 或科研数值。
+实际内部流道语义、公共腔体或供给空间、边界关联、网格与 Fluent 执行仍需单独接入。
+仅复制独立流道不构成喷嘴间相互作用的计算域；三个实际安装尺寸仍未确认，演示阵列不作为实际工程方案。
+CAD 文件和运行报告保存于本地忽略目录，不随代码上传 GitHub。
 
 ## 安装
 
