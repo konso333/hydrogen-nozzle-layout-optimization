@@ -37,7 +37,7 @@ python scripts/inspect_engineering_config.py --config examples/engineering_nozzl
 
 第一步建立配置和检查入口；第二步接入现有几何约束校验；第三步接入单个工程排布生成与独立导出。
 第四步接入同一工程安装条件下的可变 N 搜索；第五步接入选中候选的 M2 几何归档与工程附加记录；
-第六步接入保留实际安装条件的 M6 CFD 交接。
+第六步接入保留实际安装条件的 M6 CFD 交接；第七步接入区分安装尺寸与流体域的 Fluent 准备文件。
 这份工程配置不能作为 `run_search_experiment.py --config` 的 M3 搜索设计使用；
 工程生成与搜索入口均保留实际安装半径与余量记录。
 
@@ -233,6 +233,62 @@ python scripts/prepare_engineering_cfd.py --verify path/to/engineering_handoff.j
 旧 M7 仍将 M2 有效半径映射为其准备层的 `chamber_radius`，新扩展在 M7 中保留为 `unsupported`；
 后续需显式适配真实流体域，不能将旧准备映射直接用于三维建模或运行。
 本入口不生成网格、不启动 Fluent、不声称完成 M8 执行条件；当前工程模板的三个待定尺寸仍为 `null`。
+
+### 第七步：工程 Fluent 准备与尺寸语义复核
+
+[engineering_fluent.py](engineering_fluent.py) 读取第六步的 `engineering_handoff.json`，
+复核工程/M6/M2 源文件，复用 M7 的设置检查、坐标换算、注释式 journal 和 readiness 生成逻辑。
+通过独立入口导出，原 M7/M8 接口与文件协议保持原样：
+
+```bash
+python scripts/prepare_engineering_fluent.py --handoff path/to/engineering_handoff.json --output-dir outputs/engineering_fluent/new_preparation
+```
+
+新几何记录分别标明 `installation_radius`（实际安装半径）、`validation_radius`（扣除壁面余量后的几何校验半径）、
+`nozzle_outer_diameter`（实体外径），以及最小喷嘴外缘间隙、最小壁面余量和最小中心距；长度均带 `mm` 单位。
+保留原坐标字节与逐点 `centers_m = centers_mm × 0.001`，不以 14 mm 外径推导内部通流面积。
+`chamber_radius`、`axial_length`、`nozzle_passage_geometry` 缺少明确来源时均为 `unresolved`。
+旧 `simulation_config.extras.axial_length` 单项声明保留为未适配扩展，不自动当作燃烧室轴向长度。
+
+如果已经确认圆形燃烧室流体域，可在**第六步工况文件副本**的 `simulation_config.extras` 中明确提供
+`engineering_fluid_domain`，重新生成 CFD 交接包；准备设置不能覆盖物理输入。
+该可选扩展必须包含以下三个键，未知尺寸仍用 `null`：
+
+```json
+{
+  "engineering_fluid_domain": {
+    "coordinate_frame": "layout_xy_origin_z_axis",
+    "chamber_radius": null,
+    "axial_length": null
+  }
+}
+```
+
+这里的 frame 声明圆形截面与排布共用 XY 原点、轴线沿 Z；不能用于任意偏心或倾斜流体域。
+已知尺寸使用 `{"value": 正数, "unit": "mm"}`，必须同时明确 frame，不自动转换单位。
+检查喷嘴中心是否位于所声明的圆形截面内，沿用原几何容差；**此检查不证明内部流道或喷口完整落在流体域内**。
+流体域与旧轴向长度同时声明且不一致时拒绝准备。改变流体域会改变 CFD ID；
+14 mm 外径、安装区域和壁面余量均不自动成为燃烧室尺寸，内部供氢/氧化剂流道与真实面区仍待建模确认。
+
+可选 `--settings` 指向 [examples/engineering_automation_settings.template.json](examples/engineering_automation_settings.template.json) 的副本，
+填写原 M7 支持的 `mesh` 与 `numerical_settings`；空对象表示未指定，没有默认网格尺寸或迭代次数。
+数值/网格准备设置只改变准备摘要，不改变 CFD ID。
+
+新目录包含 `engineering_automation_manifest.json`、`engineering_automation_spec.json`、
+`engineering_geometry_input.json`、`prepare_engineering.jou`、`readiness.json` 和 `coordinates_mm.csv`。
+完成标记最后写入并自动复核，导出失败会尽可能记录 `failed`；无法写入时可能留下缺少完成标记的不完整目录。
+已有目录、CFD 包内部和源工程归档内部均拒绝作为输出位置。
+
+只读复核会从源工况和保存的设置重建所有文件，拒绝修改尺寸、换算、journal 命令、readiness 或校验和后的结果：
+
+```bash
+python scripts/prepare_engineering_fluent.py --handoff path/to/engineering_handoff.json --verify path/to/engineering_automation_manifest.json
+```
+
+成功退出 `0`，输入/核验/导出错误退出 `2`。源工程归档与 M6 包搬迁须保留相对位置；
+仅有准备文件无法完成全链路复核。准备文件采用独立名称和类型，不作为原 M8A/M8B 的执行包使用。
+`ready_to_execute` 始终为 `false`，journal 全部为注释；不创建 attempt、网格、CAS/DAT 或 CFD 数值。
+当前实际安装尺寸仍待确认；本步骤没有构建真实三维流体域，也没有启动 Fluent。
 
 ## 安装
 
