@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "kind": "single_nozzle_internal_fluid",
+  "source_step": null,
+  "source_sha256": null,
+  "source_length_unit": null,
+  "nozzle_outer_diameter_mm": 14,
+  "reference_origin": null,
+  "reference_x_direction": null,
+  "reference_axis_direction": null
+}

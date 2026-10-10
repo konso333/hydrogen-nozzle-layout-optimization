@@ -37,7 +37,8 @@ python scripts/inspect_engineering_config.py --config examples/engineering_nozzl
 
 第一步建立配置和检查入口；第二步接入现有几何约束校验；第三步接入单个工程排布生成与独立导出。
 第四步接入同一工程安装条件下的可变 N 搜索；第五步接入选中候选的 M2 几何归档与工程附加记录；
-第六步接入保留实际安装条件的 M6 CFD 交接；第七步接入区分安装尺寸与流体域的 Fluent 准备文件。
+第六步接入保留实际安装条件的 M6 CFD 交接；第七步接入区分安装尺寸与流体域的 Fluent 准备文件；
+第八步接入内部流道 STEP 模板的单位、坐标基与逐喷嘴定位清单。
 这份工程配置不能作为 `run_search_experiment.py --config` 的 M3 搜索设计使用；
 工程生成与搜索入口均保留实际安装半径与余量记录。
 
@@ -289,6 +290,60 @@ python scripts/prepare_engineering_fluent.py --handoff path/to/engineering_hando
 仅有准备文件无法完成全链路复核。准备文件采用独立名称和类型，不作为原 M8A/M8B 的执行包使用。
 `ready_to_execute` 始终为 `false`，journal 全部为注释；不创建 attempt、网格、CAS/DAT 或 CFD 数值。
 当前实际安装尺寸仍待确认；本步骤没有构建真实三维流体域，也没有启动 Fluent。
+
+### 第八步：内部流道 CAD 模板定位
+
+[engineering_cad.py](engineering_cad.py) 为后续 CAD 建模输出逐喷嘴复制变换。
+它先重放第七步和上游工程归档，再读取一份明确指定的**单喷嘴内部流道 STEP**。
+现有单喷嘴网格或 CAS 不能作为 STEP 模板输入；实体装配也不能仅凭外径当作内部流道。
+
+复制 [examples/engineering_cad_template.template.json](examples/engineering_cad_template.template.json)
+到本地配置目录，填写：
+
+- `source_step`：内部流道 STEP 的绝对路径，或相对这份配置文件的路径；`source_sha256` 必须与文件一致。
+- `source_length_unit`：STEP 原始坐标的 `mm` 或 `m`，必须与文件中的简单 SI 长度单位声明一致。
+  混合、换算单位或无法识别的 STEP 单位会拒绝，需要先用 CAD 工具明确转换；不会猜测单位。
+- `nozzle_outer_diameter_mm`：对应实体喷嘴外径，必须等于上游已核验配置；不是从流体包围盒推断的流道直径。
+- `reference_origin`：原 STEP 坐标中的安装参考点，使用 `source_length_unit`。
+  该点会定位到每个喷嘴中心的 `z=0` 平面；参考点是否为出口必须按实际建模约定核对。
+- `reference_x_direction`、`reference_axis_direction`：原 STEP 坐标中的单位向量，分别定义目标 +X 和 +Z；两者必须垂直。
+  目标 +Y 由 `axis × x` 确定，以保持右手坐标系。所有喷嘴沿用同一方向，不附加径向转角。
+
+例如，**已核对为 mm、原点位于参考面、轴向为 +Y、周向参考为 +X** 的流道模板，
+可填写原点 `[0,0,0]`、X 方向 `[1,0,0]`、轴向 `[0,1,0]`；
+转换为 `(x,y,z)_目标 = (x,-z,y)_原模型 + (x_i,y_i,0)`。
+这些向量必须与具体模板匹配，不能当作所有 CAD 的默认值。
+
+```powershell
+python scripts/prepare_engineering_cad.py --handoff path/to/engineering_handoff.json --automation path/to/engineering_automation_manifest.json --template-profile .local/internal_flow_template.json --output-dir outputs/engineering_cad/new_placement
+```
+
+新目录保存原样复制的 `template.step`、原样坐标 `coordinates_mm.csv`、
+`cad_placement_plan.json` 和最后发布的 `cad_placement_manifest.json`。
+每个实例包含沿用坐标 CSV 顺序的 `nozzle_id`、中心坐标和 `transform_mm_from_source`。
+矩阵约定为行优先的 4×4 矩阵乘原 STEP 列向量 `[x,y,z,1]`，结果单位 mm：
+`p_target_mm = s * R * (p_source - reference_origin) + centre_mm`；`s` 为 1 或 1000，除此之外不缩放喷嘴。
+输出不得覆盖已有目录，也不得写入任何源归档、准备包、模板或配置目录内部。
+输入错误发生在创建输出前；后续 I/O 错误会尝试写入 `failed` 标记，写标记也失败时可能留下不完整目录。
+失败后保留目录并另选输出位置，始终以全链路复核为准。
+
+只读复核仍需明确提供同一组上游文件和模板配置，重新构造所有矩阵与文件内容。
+修改矩阵并重算输出校验和不能通过复核：
+
+```powershell
+python scripts/prepare_engineering_cad.py --handoff path/to/engineering_handoff.json --automation path/to/engineering_automation_manifest.json --template-profile .local/internal_flow_template.json --verify path/to/cad_placement_manifest.json
+```
+
+成功退出 `0`，输入、导出或核验错误退出 `2`。输出的 `placement_digest` 绑定模板字节、参考坐标基和上游准备记录，
+是建模清单摘要；不重定义 M6 CFD ID，不能据此把不同 CAD 或流道当作同一科研案例求解。
+源路径只用于本地读取，不写入清单；搬迁后复核仍须提供可用源文件，并保留上游归档相对位置及模板配置原始字节。
+需要搬迁模板时采用相对路径并保持文件布局；绝对源路径失效后需另建配置、重新导出，不能编辑已有封存清单冒充复核通过。
+
+此步仅验证输入文件、单位声明和定位变换，**不解析或验证 BRep 流道拓扑，不生成阵列 STEP 或网格，也不启动 CAD/Fluent**。
+`source_geometry_checked`、`cad_built`、`mesh_generated`、`ready_to_execute` 均保持 `false`，
+不会消除第七步的流道、边界、网格或执行待定项。后续仍需 CAD 内核实际复制流道、检查交叠与包容、
+按计算范围构建公共腔体/供给空间、重新关联实际边界并划网格；独立流道复制清单不证明喷嘴之间存在流动相互作用。
+工程安装半径和两种余量的三个 `null` 仍保留，当前不能以演示尺寸生成实际阵列。
 
 ## 安装
 
