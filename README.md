@@ -36,7 +36,8 @@ python scripts/inspect_engineering_config.py --config examples/engineering_nozzl
 `parameters_complete=true` 仅表示输入齐全，不证明已能容纳目标 N、已完成制造校核或具有更优燃烧性能。
 
 第一步建立配置和检查入口；第二步接入现有几何约束校验；第三步接入单个工程排布生成与独立导出。
-第四步接入同一工程安装条件下的可变 N 搜索；第五步接入选中候选的 M2 几何归档与工程附加记录。
+第四步接入同一工程安装条件下的可变 N 搜索；第五步接入选中候选的 M2 几何归档与工程附加记录；
+第六步接入保留实际安装条件的 M6 CFD 交接。
 这份工程配置不能作为 `run_search_experiment.py --config` 的 M3 搜索设计使用；
 工程生成与搜索入口均保留实际安装半径与余量记录。
 
@@ -188,6 +189,50 @@ python scripts/archive_engineering_candidates.py --verify path/to/engineering_ru
 工程附加文件导出失败时，工程批次记录为 `failed`；M2 几何批次自身的完成状态独立保留。
 失败目录不继续作为已完成工程结果使用，重试应另选新目录。
 当前模板的三个待定参数仍是 `null`，实际工程阵列尚需确认尺寸；归档不运行 Fluent，CFD 状态保持 `not_started`。
+
+### 第六步：工程候选的 CFD 交接
+
+[engineering_cfd.py](engineering_cfd.py) 先复核第五步的完整工程归档，再为其中**明确指定的一个 case ID**
+调用原 M6 `export_cfd_package`。每次提供一份工况/模型配置，多个候选或工况需分别调用；
+不默认选取 Pareto、不套用旧单喷嘴网格或先前的通流工况。
+
+复制 [examples/engineering_cfd_profile.template.json](examples/engineering_cfd_profile.template.json)，
+按 [M6 工况与结果契约](M6_CFD_HANDOFF.md) 填写 `operating_condition`、`simulation_config`，
+并将 `required_metrics=null` 改为明确的非空指标列表，例如 `["pressure_loss"]`。
+模板的未知物理输入保留 `null`；即使选好指标后能生成交接包，也不表示物理输入完整或求解就绪。
+多入口速度、组分基准、压力参考和壁面条件需在带单位的 `extras` 中明确声明；
+摩尔分数正式字段不能直接填写质量分数，不自动换算或推导当量比。
+
+```bash
+python scripts/prepare_engineering_cfd.py --archive path/to/engineering_run.json --case-id case_v1_... --profile path/to/cfd_profile.json --output-root outputs/engineering_cfd
+```
+
+原 M6 包结构、身份算法、结果契约和状态机不变。适配器将实际安装半径、实体外径、要求外缘间隙与壁面余量，
+以带 `mm` 单位的四项数值写入 `simulation_config.extras.engineering_mounting`，参与 CFD 身份。
+该扩展由已复核的工程归档提供，工况文件不能覆盖它。工程配置名称保留作说明，不参与身份。
+例如 `安装半径=60 / 壁面余量=3` 与 `65 / 8` 可对应同一有效几何半径 57，
+但生成不同 CFD ID；这两个组合仅用于测试，**不是已确认的实际尺寸**。
+
+每个 M6 包额外包含 `engineering_handoff.json`：原工程配置、完整工程 case 记录、规范工况、
+四层身份关联、相对源引用和文件校验和。此文件最后发布，失败时标记 `failed`；
+底层 M6 导出失败可能仅留下不完整目录，均不能通过工程复核，重试须保留失败记录并换输出根。
+输出不得写入源工程归档内部；同一 run/CFD ID 的已有包拒绝覆盖，不创建 attempt 或 CFD 数值。
+
+只读复核会重新验证 M6/M2、完整工程归档、实际安装尺寸与工况身份、指标契约及工程附加文件：
+
+```bash
+python scripts/prepare_engineering_cfd.py --verify path/to/engineering_handoff.json
+```
+
+成功退出 `0`，可读取的附加记录或指标契约不匹配退出 `1`，输入非法、源损坏或导出失败退出 `2`。
+搬迁时须保留 M6 包与源工程归档的相对位置；仅复制交接包不能完成依赖源文件的完整核验。
+校验和用于发现文件变化，不是数字签名。
+
+这些安装条件不是三维流体域定义。`ready_to_execute` 始终为 `false`；
+安装半径不能直接当作燃烧室流体域半径，实体 14 mm 外径不能当作喷口或流道直径。
+旧 M7 仍将 M2 有效半径映射为其准备层的 `chamber_radius`，新扩展在 M7 中保留为 `unsupported`；
+后续需显式适配真实流体域，不能将旧准备映射直接用于三维建模或运行。
+本入口不生成网格、不启动 Fluent、不声称完成 M8 执行条件；当前工程模板的三个待定尺寸仍为 `null`。
 
 ## 安装
 

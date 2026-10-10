@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "operating_condition": {
+    "inlet_temperature": null,
+    "inlet_pressure": null,
+    "mass_flow_rate": null,
+    "equivalence_ratio": null,
+    "fuel_mole_fractions": null,
+    "oxidizer_mole_fractions": null,
+    "extras": {}
+  },
+  "simulation_config": {
+    "solver": "Fluent",
+    "model_name": null,
+    "turbulence_model": null,
+    "combustion_model": null,
+    "dimensionality": "3D",
+    "steady_or_transient": null,
+    "extras": {}
+  },
+  "required_metrics": null
+}
