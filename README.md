@@ -36,7 +36,7 @@ python scripts/inspect_engineering_config.py --config examples/engineering_nozzl
 `parameters_complete=true` 仅表示输入齐全，不证明已能容纳目标 N、已完成制造校核或具有更优燃烧性能。
 
 第一步建立配置和检查入口；第二步接入现有几何约束校验；第三步接入单个工程排布生成与独立导出。
-第四步接入同一工程安装条件下的可变 N 搜索；工程结果尚未接入 M2/M3 归档。
+第四步接入同一工程安装条件下的可变 N 搜索；第五步接入选中候选的 M2 几何归档与工程附加记录。
 这份工程配置不能作为 `run_search_experiment.py --config` 的 M3 搜索设计使用；
 工程生成与搜索入口均保留实际安装半径与余量记录。
 
@@ -144,6 +144,50 @@ CSV 保留实际安装半径、实体外径和两项要求间隙，并给出实�
 成功且至少有一个可行方案退出码为 `0`；零可行时仍保存诊断报告，退出码为 `1`；
 配置不完整、搜索参数非法或导出错误为 `2`。输出目录必须尚不存在，`search_report.json` 最后写入。
 配置或预检失败不创建输出目录；导出失败的目录视为不完整结果，重试应另选新目录。
+
+### 第五步：批量导出候选并归档
+
+[engineering_archive.py](engineering_archive.py) 读取第四步保存的 `search_report.json`，
+按原工程配置和完整搜索设计重放，核对规格、case ID、约束结果、计数和 Pareto 标记。
+报告与当前代码重放结果不一致时明确拒绝归档，不自动修正旧报告。
+原搜索报告按原字节复制到归档中，并记录 SHA-256；历史 provenance 保留，M2 另外记录本次归档环境。
+
+默认归档本次报告的几何 Pareto 候选：
+
+```bash
+python scripts/archive_engineering_candidates.py --report path/to/search_report.json --output-dir outputs/engineering_archives/run_01
+```
+
+追加 `--select all` 可归档全部可行方案；也可用一个或多个 `--case-id case_v1_...` 明确指定可行方案，
+包括非 Pareto 方案。指定 case ID 与 `--select` 不能同时使用；重复、未知、不可行或空选择会报错，且不创建输出。
+仅有单喷嘴时可能没有当前几何 Pareto 候选，需要显式选择 `all` 或其 case ID。
+输出目录必须尚不存在；批次内部仍由原 M2 分配唯一 run ID。
+
+每个批次保持原 M2 的 `run.json`、`case.json`、`coordinates.csv`、`layout.png`、`validation.json`、`metrics.json`，
+完整规格及自定义的几何/对称性容差直接保留，不经过第三步入口的默认参数。
+CSV 继续使用 `nozzle_id,x_mm,y_mm,z_mm`，单位 mm、`z_mm=0`。
+额外增加：
+
+- 批次 `engineering_run.json`：工程配置、候选选择、M2 关联、工程文件校验和与批次状态。
+- 批次 `search_report.json`：原始搜索报告副本。
+- 各 case 的 `engineering.json`：完整规格、原安装尺寸、约束结果、实测间隙及壁面余量。
+- 各 case 的 `engineering_layout.png`：实际安装边界、预留壁面余量后的外缘极限与允许中心边界图。
+
+**安装尺寸应查看 `engineering_layout.png`**；原 M2 的 `layout.png` 表示扣除壁面余量后的有效几何区域。
+原 M2 文件与协议不修改，工程附加记录也不把几何 case ID 改成完整 CFD 工况身份。
+每份归档都必须保留原工程配置，因为不同安装半径和壁面余量可能对应同一几何规格。
+
+归档完成前自动校验 M2 文件、源报告重放、工程配置、工程文件校验和与逐案对应关系。
+日后可只读复核（此模式不写入或修复文件）：
+
+```bash
+python scripts/archive_engineering_candidates.py --verify path/to/engineering_run.json
+```
+
+校验通过退出码 `0`，可读取但校验不匹配为 `1`；输入非法、文件不可读取或归档失败为 `2`。
+工程附加文件导出失败时，工程批次记录为 `failed`；M2 几何批次自身的完成状态独立保留。
+失败目录不继续作为已完成工程结果使用，重试应另选新目录。
+当前模板的三个待定参数仍是 `null`，实际工程阵列尚需确认尺寸；归档不运行 Fluent，CFD 状态保持 `not_started`。
 
 ## 安装
 
