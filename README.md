@@ -4,7 +4,7 @@
 
 本程序不会根据几何指标推断氢转化率、燃烧完全度、温度场、压损或壁面热流，也不会自动生成任何 CFD 数值。因此，输出中的“Pareto 候选”仅表示几何层候选，不表示燃烧性能最优。
 
-## 14 mm 实体喷嘴：工程参数准备（第一步）
+## 14 mm 实体喷嘴：工程配置与几何校验
 
 最新 CAD 喷嘴外径已确认为 **14 mm**。独立配置
 [examples/engineering_nozzle_14mm.json](examples/engineering_nozzle_14mm.json)
@@ -35,9 +35,34 @@ python scripts/inspect_engineering_config.py --config examples/engineering_nozzl
 显式的 `0` 表示零间隙，不能代替尚未确定的 `null`。
 `parameters_complete=true` 仅表示输入齐全，不证明已能容纳目标 N、已完成制造校核或具有更优燃烧性能。
 
-第一步只建立配置和检查入口，尚未连接排布生成、N 搜索或 M2/M3 归档。
+第一步建立配置和检查入口；第二步接入现有几何约束校验，尚未连接自动排布生成、N 搜索或 M2/M3 归档。
 这份工程配置不能作为 `run_search_experiment.py --config` 的 M3 搜索设计使用；
-后续会在保留实际安装半径与余量记录的基础上适配现有生成和验证接口。
+后续会在保留实际安装半径与余量记录的基础上适配排布生成和搜索接口。
+
+第二步可只读检查已有坐标。先在工程配置副本中明确填写三个待定参数，再运行：
+
+```bash
+python scripts/inspect_engineering_config.py --config path/to/engineering.json --coordinates path/to/coordinates.csv --N 24
+```
+
+当前仓库模板仍包含 `null`，用它校验坐标会直接报错，不默认采用 55 mm 安装半径或零间隙。
+坐标 CSV 支持原 `x_mm,y_mm` 和 M2 的 `nozzle_id,x_mm,y_mm,z_mm` 格式，单位 mm；
+M2 格式要求 `z_mm=0`，不自动投影非平面坐标。
+
+适配器 [engineering_geometry.py](engineering_geometry.py) 复用原 `GeometryConfig` 和几何校验函数：
+
+- `R = installation_radius_mm - wall_clearance_mm`，此 R 仅为校验半径。
+- `d = nozzle_outer_diameter_mm`，保持实体外径，不通过放大直径代替间隙。
+- `s_min = nozzle_outer_diameter_mm + nozzle_edge_gap_mm`，单位 mm。
+
+报告同时保留原工程配置 `configuration`、校验参数 `validation_geometry`、
+约束结果 `validation` 以及实测外缘间隙、壁面余量和两者的剩余裕量 `measured_clearances_mm`。
+`boundary_ok` 包含壁面余量要求；`overlap_ok` 检查实体是否重叠；`spacing_ok` 另外检查装配间隙。
+少于两个喷嘴时，喷嘴之间的间隙为 `null`；没有喷嘴时，壁面余量也为 `null`。
+校验要求明确的正整数 N，空坐标不能通过。数值容差沿用 `1e-9 mm`，报告中的裕量不作截零处理。
+
+坐标校验通过退出码为 `0`，几何约束失败为 `1`，配置不完整或输入错误为 `2`。
+检查过程不修改坐标文件、不保存新排布、不运行 Fluent；旧几何接口和历史结果保持原样。
 
 ## 安装
 
