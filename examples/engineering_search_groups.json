@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "name": "Engineering search structure example - not a confirmed project design",
+  "description": "Illustrative N ranges and parameter sets only. Confirm the installation profile and replace these search choices before engineering use. Lengths in mm; angles in rad.",
+  "symmetry_tolerance": 1e-6,
+  "groups": [
+    {
+      "N": {"start": 12, "stop": 40, "step": 4},
+      "layout_type": "rectangular",
+      "parameter_sets": [{"spacing": 16}, {"spacing": 20}]
+    },
+    {
+      "N": {"start": 12, "stop": 40, "step": 4},
+      "layout_type": "hexagonal",
+      "parameter_sets": [{"spacing": 16}, {"spacing": 20}]
+    },
+    {
+      "N": 12,
+      "layout_type": "sector",
+      "parameter_sets": [
+        {"num_sectors": 4, "points_per_sector": 3, "inner_radius": 40, "outer_radius": 40, "sector_angle": 1.0},
+        {"num_sectors": 4, "points_per_sector": 3, "inner_radius": 40, "outer_radius": 40, "sector_angle": 0.4}
+      ]
+    }
+  ]
+}

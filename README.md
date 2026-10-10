@@ -36,9 +36,9 @@ python scripts/inspect_engineering_config.py --config examples/engineering_nozzl
 `parameters_complete=true` 仅表示输入齐全，不证明已能容纳目标 N、已完成制造校核或具有更优燃烧性能。
 
 第一步建立配置和检查入口；第二步接入现有几何约束校验；第三步接入单个工程排布生成与独立导出。
-尚未接入工程 N 搜索或 M2/M3 归档。
+第四步接入同一工程安装条件下的可变 N 搜索；工程结果尚未接入 M2/M3 归档。
 这份工程配置不能作为 `run_search_experiment.py --config` 的 M3 搜索设计使用；
-工程生成入口保留实际安装半径与余量记录，后续再适配搜索接口。
+工程生成与搜索入口均保留实际安装半径与余量记录。
 
 第二步可只读检查已有坐标。先在工程配置副本中明确填写三个待定参数，再运行：
 
@@ -99,6 +99,51 @@ python scripts/generate_engineering_layout.py --config path/to/engineering.json 
 输出目录必须尚不存在，重复运行应换新目录。几何不可行退出码为 `1`，配置不完整、参数或输出错误为 `2`，成功为 `0`。
 配置和几何失败不会创建输出目录；`generation.json` 最后写入，若导出中途失败，应将该目录视为不完整结果并选择新目录重试。
 本入口不运行 Fluent。当前项目模板的三个待定参数保持 `null`，因此还不能据此生成实际工程阵列。
+
+### 第四步：工程条件下的可变 N 搜索
+
+[engineering_search.py](engineering_search.py) 将同一份完整工程配置转换为现有 M3 搜索设计，
+复用原有参数预检、生成器、几何约束、去重、评价指标和 Pareto 计算。
+搜索组文件只声明 `schema_version`、`name`、`groups`，可选 `description` 与 `symmetry_tolerance`；
+不能通过 `geometry_space`、`blocks` 或布局参数覆盖工程尺寸。
+工程模板仍有三个 `null`，入口会拒绝搜索，也不会默认运行旧的 426 组设计。
+
+[examples/engineering_search_groups.json](examples/engineering_search_groups.json) 演示矩形、三角晶格的 N 范围与节距组合，
+以及固定数量的扇形参数组合。**该文件中的数量、节距、半径和角度仅演示格式，使用前需另行确认。**
+完整工程配置与明确的搜索组副本准备好后运行：
+
+```bash
+python scripts/search_engineering_layouts.py --config path/to/engineering.json --search path/to/search_groups.json --output-dir outputs/engineering_search/new_run
+```
+
+每个组的 `N` 可为正整数、离散列表或 `{"start": 12, "stop": 40, "step": 4}` 范围，
+从 start 按 step 递增，取不超过 stop 的值。
+组内将每个 N 与每份 `parameter_sets` 交叉组合；`rows*columns`、环喷嘴数和扇区数量等必须与每个 N 匹配。
+例如环形的 `points_per_ring` 随 N 改变时，应分别建组，不能用不匹配的数量组合继续搜索。
+所有组在生成坐标前完成预检；非法参数使整次搜索报错，有限的几何不可行方案则记录失败原因并继续。
+参数是显式搜索选择：改变安装半径不会自动缩放环半径、扇区半径或节距。
+
+新输出目录包含 `search_report.json`、`feasible_candidates.csv`、`pareto_candidates.csv`；
+存在有限几何目标的可行候选时还输出 `pareto_tradeoffs.png`。
+JSON 保存原工程配置、实际校验参数、完整 M3 搜索设计与逐案规格、去重来源、不可行原因、
+各 N 的可行数量和 Pareto 数量、几何目标定义及 Git/运行环境记录。
+CSV 保留实际安装半径、实体外径和两项要求间隙，并给出实测间隙和壁面余量；
+`minimum_spacing_margin`、`minimum_boundary_margin` 分别为两者相对要求的剩余裕量。
+两种 CSV 即使没有记录也保留表头；单喷嘴的两喷嘴间距为空值，不纳入当前 Pareto。
+
+筛选目标沿用现有定义：同时最大化 N、最近邻均匀性与最小中心距，比较范围限于本次全部唯一可行候选。
+`largest_feasible_N` 只是**给定 N 和参数组合中**找到的最大可行数量；
+零可行时为 `null`，不能当作安装空间的理论容量上限，更不能当作功率或燃烧效率最优数量。
+此处还没有反应 CFD 性能目标。
+报告中的 `case_id` 沿用有效几何规格编号，需与原 `configuration` 一同保留，含义与第三步的 `geometry_case_id` 相同。
+报告中的完整 `specifications` 可通过 `CaseSpec.from_normalized(...).generate()` 重现坐标。
+选定方案后，也可用对应的 N、布局类型和布局参数，通过第三步入口独立生成坐标和安装边界图；
+第三步命令行使用其默认容差，因此搜索采用自定义容差时应直接重放完整规格。
+输出属于工程搜索报告，不是 M2/M3 归档。
+
+成功且至少有一个可行方案退出码为 `0`；零可行时仍保存诊断报告，退出码为 `1`；
+配置不完整、搜索参数非法或导出错误为 `2`。输出目录必须尚不存在，`search_report.json` 最后写入。
+配置或预检失败不创建输出目录；导出失败的目录视为不完整结果，重试应另选新目录。
 
 ## 安装
 
