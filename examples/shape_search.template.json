@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "name": "Project mounting layout inputs — pending confirmation",
+  "mode": "fixed_space",
+  "boundary": {
+    "kind": "circle",
+    "radius_mm": null,
+    "start_angle_deg": 0,
+    "sweep_angle_deg": 360
+  },
+  "nozzle": {
+    "outer_diameter_mm": 14,
+    "edge_gap_mm": null,
+    "wall_clearance_mm": null
+  },
+  "counts": [
+    1,
+    4,
+    7,
+    12,
+    19,
+    24,
+    37
+  ],
+  "radius_candidates_mm": [],
+  "layouts": [
+    {
+      "family": "honeycomb",
+      "parameters": {
+        "spacing_mm": null
+      }
+    },
+    {
+      "family": "sunflower",
+      "parameters": {}
+    }
+  ],
+  "power_model": null,
+  "target_power_kW": null,
+  "tolerance_mm": 1e-9
+}

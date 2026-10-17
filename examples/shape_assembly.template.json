@@ -1,0 +1,109 @@
+{
+  "schema_version": 2,
+  "name": "REAL CAD DIMENSIONS / REQUIRED CLEARANCES UNCONFIRMED",
+  "mode": "fixed_space",
+  "boundary": {
+    "kind": "circle",
+    "radius_mm": 38,
+    "start_angle_deg": 0,
+    "sweep_angle_deg": 360
+  },
+  "nozzle": {
+    "outer_diameter_mm": 14,
+    "edge_gap_mm": null,
+    "wall_clearance_mm": null
+  },
+  "counts": [
+    9
+  ],
+  "radius_candidates_mm": [],
+  "layouts": [
+    {
+      "family": "rectangular",
+      "parameters": {
+        "spacing_mm": 21
+      }
+    }
+  ],
+  "power_model": null,
+  "target_power_kW": null,
+  "tolerance_mm": 1e-9,
+  "assembly": {
+    "review_status": "teacher_confirmation_pending",
+    "assumptions": "Exploratory only: coordinated redesign of front holes, rear through-holes and counterbores would require teacher confirmation. Identical parallel coaxial assemblies; selected planes only, NOT full 3D interference certification. Zero clearances allow tangency for a geometry capacity comparison, NOT manufacturing. Existing CAD unchanged; power and efficiency unresolved.",
+    "sections": [
+      {
+        "name": "front_mount",
+        "axial_range_mm": [
+          0,
+          0
+        ],
+        "boundary": {
+          "kind": "circle",
+          "radius_mm": 38,
+          "start_angle_deg": 0,
+          "sweep_angle_deg": 360
+        },
+        "radius_offset_mm": null,
+        "outer_diameter_mm": 14,
+        "edge_gap_mm": null,
+        "wall_clearance_mm": null,
+        "source": "CAD analytic circles measured read-only 2026-10-17; evidence: 分截面约束与文献_20261017/cad_sections_evidence.json. Part: 氢气腔.SLDPRT. Clearances are scenario assumptions, not manufacturing limits."
+      },
+      {
+        "name": "rear_counterbore_mount",
+        "axial_range_mm": [
+          -30,
+          -30
+        ],
+        "boundary": {
+          "kind": "circle",
+          "radius_mm": 40,
+          "start_angle_deg": 0,
+          "sweep_angle_deg": 360
+        },
+        "radius_offset_mm": null,
+        "outer_diameter_mm": 20,
+        "edge_gap_mm": null,
+        "wall_clearance_mm": null,
+        "source": "CAD analytic circles measured read-only 2026-10-17; evidence: 分截面约束与文献_20261017/cad_sections_evidence.json. Part: 氢气腔底.SLDPRT + 钝体-改1.SLDPRT. Clearances are scenario assumptions, not manufacturing limits."
+      },
+      {
+        "name": "rear_through_mount",
+        "axial_range_mm": [
+          -21,
+          -21
+        ],
+        "boundary": {
+          "kind": "circle",
+          "radius_mm": 38,
+          "start_angle_deg": 0,
+          "sweep_angle_deg": 360
+        },
+        "radius_offset_mm": null,
+        "outer_diameter_mm": 14,
+        "edge_gap_mm": null,
+        "wall_clearance_mm": null,
+        "source": "CAD analytic circles measured read-only 2026-10-17; evidence: 分截面约束与文献_20261017/cad_sections_evidence.json. Part: 氢气腔底.SLDPRT. Clearances are scenario assumptions, not manufacturing limits."
+      },
+      {
+        "name": "chamber_near_exit",
+        "axial_range_mm": [
+          0,
+          0
+        ],
+        "boundary": {
+          "kind": "circle",
+          "radius_mm": 42,
+          "start_angle_deg": 0,
+          "sweep_angle_deg": 360
+        },
+        "radius_offset_mm": null,
+        "outer_diameter_mm": 14,
+        "edge_gap_mm": null,
+        "wall_clearance_mm": null,
+        "source": "CAD analytic circles measured read-only 2026-10-17; evidence: 分截面约束与文献_20261017/cad_sections_evidence.json. Part: 主燃区燃烧腔.SLDPRT + 喷管.SLDPRT. Clearances are scenario assumptions, not manufacturing limits."
+      }
+    ]
+  }
+}

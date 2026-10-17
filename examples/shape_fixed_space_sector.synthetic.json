@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "name": "SYNTHETIC DEMO ONLY — not confirmed project inputs",
+  "mode": "fixed_space",
+  "boundary": {
+    "kind": "sector",
+    "radius_mm": 100,
+    "start_angle_deg": 0,
+    "sweep_angle_deg": 120
+  },
+  "nozzle": {
+    "outer_diameter_mm": 14,
+    "edge_gap_mm": 2,
+    "wall_clearance_mm": 3
+  },
+  "counts": [
+    1,
+    4,
+    7,
+    12,
+    19,
+    24,
+    37
+  ],
+  "radius_candidates_mm": [],
+  "layouts": [
+    {
+      "family": "honeycomb",
+      "parameters": {
+        "spacing_mm": 16
+      }
+    },
+    {
+      "family": "rectangular",
+      "parameters": {
+        "spacing_mm": 16
+      }
+    },
+    {
+      "family": "sunflower",
+      "parameters": {
+        "pool_multiplier": 4
+      }
+    },
+    {
+      "family": "ring",
+      "parameters": {
+        "pool_multiplier": 4
+      }
+    }
+  ],
+  "power_model": {
+    "per_nozzle_power_kW": 2,
+    "basis": "fuel_input",
+    "source": "synthetic:format-demonstration-only",
+    "assumptions": "Synthetic independent identical-nozzle rating; not measured or CFD validated; excludes supply limits and interaction losses."
+  },
+  "target_power_kW": null,
+  "tolerance_mm": 1e-9
+}
