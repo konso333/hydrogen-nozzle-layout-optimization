@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>多喷嘴阵列设计 · Nozzle Lab</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/viewer.js" defer></script><script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-icon">✣</span><div>NOZZLE LAB<small>多喷嘴设计工作台</small></div></div>
+    <nav aria-label="开发阶段"><span class="step active"><b>01</b> 阵列设计</span><span class="step"><b>02</b> 工况设置 <small>待接入</small></span><span class="step"><b>03</b> Fluent 仿真 <small>待接入</small></span></nav>
+    <span class="local"><i></i> 本地运行 · 节点 1</span>
+  </header>
+  <main>
+    <aside class="sidebar">
+      <div class="sidebar-title"><span class="eyebrow">DESIGN PARAMETERS</span><h1>设计你的喷嘴阵列</h1><p>选择模型与排列，让程序完成定位。</p></div>
+      <form id="design-form">
+        <section class="form-section">
+          <div class="section-title"><span>01</span><h2>单喷嘴模型</h2><span id="model-state" class="tag">未载入</span></div>
+          <label for="model-select">模型方案</label><select id="model-select" aria-label="模型方案"></select>
+          <div class="model-actions"><button type="button" class="button secondary" id="import-button">＋ 导入 STEP</button><button type="button" class="button dark" id="load-model">载入模型</button></div>
+          <input id="model-file" type="file" accept=".step,.stp" hidden>
+          <div id="model-info" class="model-info">支持 STEP／STP 封闭实体，最大 20 MB。</div>
+          <details id="reference-details"><summary>轴线与安装参考点</summary>
+            <label for="axis">原模型的正向轴线</label><select id="axis"><option value="x">+X</option><option value="y" selected>+Y</option><option value="z">+Z</option></select>
+            <p class="hint">转换后喷嘴沿阵列 +Z。原点单位统一为 mm；留空时按包围盒估计，需自行核对。</p>
+            <div class="three-fields"><label>X<input id="origin-x" type="number" step="any" placeholder="自动"></label><label>Y<input id="origin-y" type="number" step="any" placeholder="自动"></label><label>Z<input id="origin-z" type="number" step="any" placeholder="自动"></label></div>
+          </details>
+        </section>
+        <section class="form-section">
+          <div class="section-title"><span>02</span><h2>安装区域与排列</h2></div>
+          <div class="two-fields"><div><label for="count">喷嘴数量 N</label><input id="count" type="number" value="9" min="1" max="128" step="1" required></div><div><label for="region">安装区域</label><select id="region"><option value="circle">圆形</option><option value="sector">扇形</option></select></div></div>
+          <label for="radius">安装区域半径 <span>mm</span></label><input id="radius" type="number" value="40" min="0.001" max="5000" step="any" required>
+          <div id="sector-fields" class="two-fields" hidden><div><label for="start-angle">起始角 / °</label><input id="start-angle" type="number" value="0" step="any"></div><div><label for="sweep-angle">扇形角度 / °</label><input id="sweep-angle" type="number" value="180" min="0.001" max="359.999" step="any"></div></div>
+          <label for="family">排列方式</label><select id="family"><option value="rectangular">方阵 · Rectangular</option><option value="honeycomb">蜂巢 · Honeycomb</option><option value="sunflower">向日葵 · Sunflower</option><option value="ring">环形 · Ring</option></select>
+        </section>
+        <section class="form-section">
+          <div class="section-title"><span>03</span><h2>几何约束</h2></div>
+          <label for="diameter">喷嘴整体包络直径 <span>mm</span></label><input id="diameter" type="number" value="20" min="0.001" step="any" required><p class="hint">载入后按整个模型检查，包含法兰，不代表流道直径。</p>
+          <div class="two-fields"><div><label for="gap">喷嘴最小净间隙 / mm</label><input id="gap" type="number" value="1" min="0" step="any" required></div><div><label for="wall">边界最小余量 / mm</label><input id="wall" type="number" value="0.1" min="0" step="any" required></div></div>
+          <label for="spacing-mode">定位方式</label><select id="spacing-mode"><option value="auto">自动定位 · 保持上述约束</option><option value="manual">指定中心距与旋转角</option></select>
+          <div id="manual-fields" class="two-fields" hidden><div><label for="spacing">中心距 / mm</label><input id="spacing" type="number" value="21" min="0.001" step="any"></div><div><label for="rotation">旋转角 / °</label><input id="rotation" type="number" value="0" step="any"></div></div>
+          <p id="spacing-hint" class="hint">自动模式会检查有限组旋转与平移，优先保留边缘余量。</p>
+        </section>
+        <div class="generate-wrap"><button id="generate" class="button primary" type="submit" disabled><span>生成阵列</span><span>↗</span></button><p>安装参数为可编辑示例，尚未作为制造要求确认。</p></div>
+      </form>
+    </aside>
+    <div class="workspace">
+      <div class="workspace-heading"><div><span class="eyebrow">ARRAY DESIGN STUDIO</span><h2>从单喷嘴，到完整阵列<span>。</span></h2><p id="workspace-caption">载入真实模型，设置参数后生成你的第一个方案。</p></div><span class="version">设计预览 v0.1</span></div>
+      <div id="notice" class="notice" role="status" aria-live="polite">正在读取本地模型目录…</div>
+      <section class="viewer-card">
+        <div class="viewer-toolbar"><div class="view-tabs"><button id="view-3d" class="selected" type="button">三维装配</button><button id="view-plan" type="button">二维排布</button></div><div class="viewer-actions"><button id="reset-view" type="button">重置视角</button><button id="save-image" type="button" disabled>保存图像 ↓</button></div></div>
+        <div class="viewport" id="viewport"><canvas id="viewer" aria-label="可拖动旋转、滚轮缩放的真实喷嘴三维预览"></canvas><div id="plan-view" hidden></div><div class="view-label"><span id="view-name">单喷嘴预览</span><small id="view-subtitle">真实 STEP 曲面 · mm</small></div><div class="view-guide" id="view-guide">拖动旋转 · 滚轮缩放</div><div id="empty-state"><span>✣</span><h3>从一个喷嘴开始</h3><p>载入模型，建立你的阵列。</p></div><div id="busy-overlay" hidden><div class="spinner"></div><strong id="busy-text">处理中…</strong><small>程序正在本机执行，请稍候。</small></div></div>
+        <div class="viewer-footer"><span><i></i><span id="viewer-status">等待模型</span></span><span>XY 安装平面 · +Z 喷嘴轴向</span></div>
+      </section>
+      <section class="metrics" aria-label="几何检查结果"><div><span>实际喷嘴数量</span><strong id="metric-count">—</strong><small>目标数量保持不变</small></div><div><span>最小中心距</span><strong id="metric-spacing">—</strong><small>mm</small></div><div><span>最小净间隙</span><strong id="metric-gap">—</strong><small>mm · 整体包络之间</small></div><div><span>最小边缘余量</span><strong id="metric-wall">—</strong><small>mm · 相对安装边界</small></div></section>
+      <section class="results-card"><div class="results-heading"><div><h3>方案与坐标</h3><p id="result-note">生成后可检查坐标，导出参数与真实实体阵列。</p></div><div class="export-actions"><button id="export-scheme" class="button secondary" type="button" disabled>导出方案 ↓</button><button id="export-cad" class="button dark" type="button" disabled>导出实体 STEP ↓</button></div></div><div class="table-wrap"><table><thead><tr><th>喷嘴编号</th><th>X / mm</th><th>Y / mm</th><th>Z / mm</th><th>检查状态</th></tr></thead><tbody id="coordinate-rows"><tr><td colspan="5" class="empty-table">尚未生成阵列</td></tr></tbody></table></div><p class="scope">本节点检查整体圆柱包络并生成实体阵列；公共流体域、网格和 Fluent 计算将在后续节点接入。</p></section>
+      <footer class="page-footer"><span>NOZZLE LAB / 阵列设计节点</span><span>模型与计算文件保存在本机</span></footer>
+    </div>
+  </main>
+</body>
+</html>
