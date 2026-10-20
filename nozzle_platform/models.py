@@ -17,6 +17,7 @@ from engineering_cad import _step_unit
 LABELS = {"B0_baseline": "B0 · 原始基准", "V1_tip_D3p3": "V1 · 尾端 D3.3",
           "V2_neck_D4p5": "V2 · 缩颈 D4.5", "V3_head_D6p2": "V3 · 头部 D6.2"}
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+MODEL_ENGINE = "cad-rigid-2"
 
 
 def digest(data):
@@ -107,13 +108,13 @@ class ModelStore:
             if (not isinstance(origin, list) or len(origin) != 3 or
                     any(type(v) not in (int, float) or not math.isfinite(v) for v in origin)):
                 raise ValueError("安装原点必须为三个有限数值，单位 mm。")
-        key = digest(json.dumps([source_id, axis, origin], sort_keys=True).encode())
+        key = digest(json.dumps([MODEL_ENGINE, source_id, axis, origin], sort_keys=True).encode())
         with self.lock:
             if key in self.models:
                 return self.models[key]
         metadata = self.cad({"operation": "preview", "source": str(self.root / (source_id + ".step")),
                              "axis": axis, "origin": origin, "source_unit": source["source_unit"]})
-        model = {**source, **metadata, "model_id": key}
+        model = {**source, **metadata, "model_id": key,"model_engine":MODEL_ENGINE}
         with self.lock:
             self.models[key] = model
         (self.root / (key + ".json")).write_text(json.dumps(model, ensure_ascii=False), encoding="utf-8")

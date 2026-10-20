@@ -51,7 +51,7 @@ def main():
                 raise SystemExit(f"Port {args.port} is in use. Close the other application or use --port 8766.") from exc
         raise
     url = f"http://127.0.0.1:{server.server_port}"
-    print(f"Nozzle platform: {url}\nClose with Ctrl+C. Milestone 1: geometry only; Fluent is not connected.", flush=True)
+    print(f"Nozzle platform: {url}\nClose with Ctrl+C. Milestone 2: shared fluid CAD; volume meshing and Fluent are not connected.", flush=True)
     if not args.no_browser:
         threading.Timer(.7, lambda: webbrowser.open(url)).start()
     try:

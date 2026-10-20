@@ -9,6 +9,7 @@ import traceback
 from urllib.parse import unquote, urlsplit
 
 from nozzle_platform.design import DesignStore
+from nozzle_platform.domains import DomainStore
 from nozzle_platform.models import MAX_UPLOAD_BYTES, ModelStore
 
 
@@ -29,11 +30,12 @@ class PlatformServer(ThreadingHTTPServer):
             raise ValueError("The local application only binds to 127.0.0.1.")
         self.models = ModelStore(Path(root) / "models", archive=archive, gmsh_path=gmsh_path)
         self.designs = DesignStore(Path(root) / "designs", self.models)
+        self.domains = DomainStore(Path(root) / "domains", self.models, self.designs)
         super().__init__(address, Handler)
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "NozzlePlatform/0.1"
+    server_version = "NozzlePlatform/0.2"
 
     def log_message(self, fmt, *args):
         print(fmt % args, flush=True)
@@ -64,7 +66,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.json({"error": "仅接受本机访问。"}, 403)
         path = urlsplit(self.path).path
         if path == "/api/bootstrap":
-            return self.json({"milestone": 1, "version": "0.1.0", "models": self.server.models.catalog(),
+            return self.json({"milestone": 2, "version": "0.2.0", "models": self.server.models.catalog(),
                               "simulation_available": False, "power_basis": "fuel_input"})
         if path.startswith("/downloads/"):
             key = path.removeprefix("/downloads/")
@@ -73,7 +75,8 @@ class Handler(BaseHTTPRequestHandler):
             if not file or not file.is_file():
                 return self.json({"error": "下载已失效，请重新导出。"}, 404)
             return self.send_data(file.read_bytes(), "application/zip", attachment="nozzle_array.zip")
-        files = {"/": "index.html", "/app.js": "app.js", "/app.css": "app.css", "/viewer.js": "viewer.js"}
+        files = {"/": "index.html", "/app.js": "app.js", "/app.css": "app.css", "/viewer.js": "viewer.js",
+                 "/domain.js":"domain.js","/domain.css":"domain.css"}
         if path not in files:
             return self.json({"error": "页面不存在。"}, 404)
         file = STATIC / files[path]
@@ -105,6 +108,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(self.server.models.load(data.get("source_id"), axis=data.get("axis", "y"), origin=data.get("origin")))
             if path == "/api/generate":
                 return self.json(self.server.designs.create(data))
+            if path == "/api/domain":
+                return self.json(self.server.domains.create(data))
+            if path == "/api/export-domain":
+                return self.json(self.server.domains.export(data.get("domain_id"),data.get("scheme_id")))
             if path == "/api/export":
                 if type(data.get("cad", False)) is not bool:
                     raise ValueError("CAD 导出选项必须为布尔值。")

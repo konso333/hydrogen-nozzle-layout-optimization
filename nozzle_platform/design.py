@@ -148,6 +148,12 @@ class DesignStore:
         self.schemes, self.downloads = {}, {}
         self.lock = threading.RLock()
 
+    def get(self, scheme_id):
+        with self.lock:
+            if scheme_id not in self.schemes:
+                raise ValueError("请先生成有效阵列方案。")
+            return self.schemes[scheme_id]
+
     def create(self, request):
         model = self.models.get(request.get("model_id"))
         scheme = generate(request, model)

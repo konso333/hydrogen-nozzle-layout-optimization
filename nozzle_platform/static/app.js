@@ -1,6 +1,6 @@
 "use strict";
 const $=id=>document.getElementById(id);
-const state={sources:[],model:null,scheme:null,busy:false,view:"3d",viewer:null};
+const state={sources:[],model:null,scheme:null,domain:null,busy:false,view:"3d",viewer:null};
 const familyNames={rectangular:"方阵",honeycomb:"蜂巢",sunflower:"向日葵",ring:"环形"};
 const fmt=(v,d=3)=>v===null||v===undefined?"—":Number(v).toLocaleString("zh-CN",{maximumFractionDigits:d});
 function notice(message,type=""){ $("notice").textContent=message;$("notice").className="notice "+type; }
@@ -8,6 +8,7 @@ function availability(){
   for(const element of document.querySelectorAll("form input,form select,form button"))element.disabled=state.busy;
   $("generate").disabled=state.busy||!state.model;
   for(const id of ["export-scheme","export-cad","save-image"])$(id).disabled=state.busy||!state.scheme;
+  domainAvailability();
 }
 function busy(on,text="处理中…"){state.busy=on;$("busy-overlay").hidden=!on;$("busy-text").textContent=text;availability();}
 async function api(path,body,headers={}){
@@ -25,6 +26,7 @@ function setSourceReference(){
   ["origin-x","origin-y","origin-z"].forEach((id,i)=>{$(id).value=source?.default_origin_mm?.[i]??"";});
 }
 function invalidate(message=false){
+  invalidateDomain();
   state.scheme=null;$("coordinate-rows").innerHTML='<tr><td colspan="5" class="empty-table">参数已更新，生成后显示坐标</td></tr>';
   for(const id of ["metric-count","metric-spacing","metric-gap","metric-wall"])$(id).textContent="—";
   $("plan-view").replaceChildren();$("view-name").textContent="单喷嘴预览";
@@ -35,6 +37,7 @@ function invalidate(message=false){
 }
 function invalidateModel(){
   invalidate();state.model=null;$("model-state").textContent="待载入";$("model-state").className="tag";
+  $("template-confirmed").checked=false;
   $("empty-state").hidden=false;$("model-info").textContent="模型或参考坐标已更改，请点击「载入模型」确认。";
   if(state.viewer){state.viewer.model=null;state.viewer.draw();}
   $("viewer-status").textContent="等待载入模型";availability();notice("请载入所选模型，再生成阵列。","neutral");
@@ -50,6 +53,7 @@ async function loadModel(){
     const model=await api("/api/load-model",{source_id:$("model-select").value,axis:$("axis").value,origin});
     state.model=model;["origin-x","origin-y","origin-z"].forEach((id,i)=>{$(id).value=model.origin_mm[i];});
     $("diameter").value=model.envelope_diameter_mm;$("diameter").min=model.envelope_diameter_mm;
+    $("upstream-z").value=Number(model.bounds_mm[0][2].toFixed(4));
     $("spacing").value=model.envelope_diameter_mm+Number($("gap").value);
     $("model-state").textContent="已载入";$("model-state").className="tag ready";
     $("model-info").textContent=`${model.label} · ${model.solid_count} 个实体 · 整体包络 Ø${fmt(model.envelope_diameter_mm)} mm · 原单位 ${model.source_unit}`;
@@ -85,9 +89,19 @@ function display(scheme){
   notice(`阵列已生成：${summary.nozzle_count} 个喷嘴。坐标与真实模型已同步，可查看二维排布或导出方案。`);availability();
 }
 function switchView(view){
-  state.view=view;$("viewer").hidden=view!=="3d";$("plan-view").hidden=view!=="plan";
+  if(view==="domain"&&!state.domain)return;
+  state.view=view;$("viewer").hidden=view==="plan";$("plan-view").hidden=view!=="plan";
   $("view-3d").classList.toggle("selected",view==="3d");$("view-plan").classList.toggle("selected",view==="plan");
-  $("view-guide").textContent=view==="3d"?"拖动旋转 · 滚轮缩放":"完整模型包络 · 编号与坐标表对应";
+  $("view-domain").classList.toggle("selected",view==="domain");
+  if(view==="domain"){
+    state.viewer?.setDomain(state.domain,$("boundary-filter").value);state.viewer.cutaway=$("cutaway").checked;
+    $("view-name").textContent="公共流体域 · 边界预览";$("view-subtitle").textContent="真实流体实体 · 边界颜色不是仿真云图";
+  }else{
+    if(view==="3d"&&state.model)state.viewer?.setModel(state.model,state.scheme);
+    $("view-name").textContent=state.scheme?`${familyNames[state.scheme.request.family]} · ${state.scheme.summary.nozzle_count} 喷嘴`:"单喷嘴预览";
+    $("view-subtitle").textContent="真实 CAD 曲面 · mm";
+  }
+  $("view-guide").textContent=view==="plan"?"完整模型包络 · 编号与坐标表对应":"拖动旋转 · 滚轮缩放";
   state.viewer?.draw();
 }
 async function exportScheme(cad){
@@ -113,7 +127,7 @@ for(const id of ["count","region","radius","start-angle","sweep-angle","family",
 $("design-form").addEventListener("submit",async event=>{
   event.preventDefault();if(!state.model||state.busy)return;
   let request;try{request=parameters();}catch(error){notice(error.message,"error");return;}
-  invalidate();busy(true,"正在生成并检查阵列…");try{const scheme=await api("/api/generate",request);if(!scheme.feasible){notice(scheme.message,"error");$("result-note").textContent=scheme.search_scope;$("viewer-status").textContent="未找到满足当前约束的排布";}else display(scheme);}catch(error){notice(error.message,"error");}finally{busy(false);}
+  invalidate();busy(true,"正在生成并检查阵列…");$("viewport").scrollIntoView({block:"center",behavior:"auto"});try{const scheme=await api("/api/generate",request);if(!scheme.feasible){notice(scheme.message,"error");$("result-note").textContent=scheme.search_scope;$("viewer-status").textContent="未找到满足当前约束的排布";}else display(scheme);}catch(error){notice(error.message,"error");}finally{busy(false);}
 });
 $("view-3d").addEventListener("click",()=>switchView("3d"));$("view-plan").addEventListener("click",()=>switchView("plan"));
 $("reset-view").addEventListener("click",()=>state.viewer?.reset());
@@ -121,10 +135,11 @@ $("export-scheme").addEventListener("click",()=>exportScheme(false));$("export-c
 $("save-image").addEventListener("click",()=>{
   if(!state.scheme)return;
   if(state.view==="plan"){const blob=new Blob([planSvg(state.scheme)],{type:"image/svg+xml"});const url=URL.createObjectURL(blob);download(url,"nozzle_layout.svg");setTimeout(()=>URL.revokeObjectURL(url),1000);}
-  else{state.viewer?.draw();download($("viewer").toDataURL("image/png"),"nozzle_assembly.png");}
+  else{state.viewer?.draw();download($("viewer").toDataURL("image/png"),state.view==="domain"?"fluid_domain.png":"nozzle_assembly.png");}
 });
 async function init(){
   try{state.viewer=new NozzleViewer($("viewer"));}catch(error){notice(error.message,"error");return;}
+  initializeDomains();
   try{const response=await fetch("/api/bootstrap"),data=await response.json();state.sources=data.models;sourceOptions();setSourceReference();if(state.sources.length)await loadModel();else notice("导入单喷嘴 STEP，即可开始设计。","neutral");}catch(error){notice(error.message,"error");}
 }
 init();

@@ -1,6 +1,7 @@
 """Isolated CAD process. Writes results to files; native CAD logs are not an API."""
 
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -20,11 +21,14 @@ def run(job):
         gmsh.option.setNumber("Geometry.OCCParallel", 0)
         gmsh.option.setString("Geometry.OCCTargetUnit", "MM")
         gmsh.model.add("nozzle_platform")
+        if job.get("source_sha256") and hashlib.sha256(Path(job["source"]).read_bytes()).hexdigest() != job["source_sha256"]:
+            raise ValueError("模型文件已改变，请重新导入。")
         entities = gmsh.model.occ.importShapes(job["source"])
         solids = [e for e in entities if e[0] == 3]
         if not solids or len(solids) != len(entities) or len(solids) > 32:
             raise ValueError("模型必须包含 1～32 个封闭三维实体；请导入 STEP 实体。")
         gmsh.model.occ.synchronize()
+        original_volume = sum(gmsh.model.occ.getMass(*e) for e in solids)
         bounds = [gmsh.model.getBoundingBox(*e) for e in solids]
         low = np.min([b[:3] for b in bounds], axis=0)
         high = np.max([b[3:] for b in bounds], axis=0)
@@ -46,11 +50,23 @@ def run(job):
         matrix = np.eye(4)
         matrix[:3, :3] = rotation
         matrix[:3, 3] = -rotation @ origin
-        gmsh.model.occ.affineTransform(solids, matrix.ravel().tolist())
+        # OpenCASCADE's generic affine path can convert analytic cylinders to
+        # approximate B-splines even for identity matrices. Use rigid CAD ops.
+        if axis == "y":
+            gmsh.model.occ.rotate(solids, 0, 0, 0, 1, 0, 0, math.pi/2)
+        elif axis == "x":
+            gmsh.model.occ.rotate(solids, 0, 0, 0, 1, 1, 1, -2*math.pi/3)
+        gmsh.model.occ.translate(solids, *matrix[:3, 3].tolist())
         gmsh.model.occ.synchronize()
         volume = sum(gmsh.model.occ.getMass(*e) for e in solids)
         if not math.isfinite(volume) or volume <= 0:
             raise ValueError("模型没有有效正体积。")
+        if not math.isclose(volume, original_volume, rel_tol=1e-8, abs_tol=1e-7):
+            raise ValueError("刚体坐标变换改变了源模型体积，已拒绝继续处理。")
+
+        if job["operation"] == "domain":
+            from domain_cad import build_domain
+            return build_domain(gmsh, job, solids)
 
         if job["operation"] == "export":
             placed, expected_solids = [], []
@@ -124,6 +140,7 @@ def run(job):
         source_matrix = matrix @ np.diag([source_scale, source_scale, source_scale, 1])
         return {"axis": axis, "origin_mm": origin.tolist(), "transform_mm_from_source": source_matrix.tolist(),
                 "transform_mm_from_import_mm": matrix.tolist(),
+                "original_volume_mm3":original_volume,"rigid_transform_volume_checked":True,
                 "bounds_mm": [low.tolist(), high.tolist()], "solid_count": len(solids),
                 "volume_mm3": volume, "envelope_diameter_mm": diameter,
                 "envelope_checked": True, "envelope_scope": "whole-model coaxial cylinder",
