@@ -1,6 +1,6 @@
 "use strict";
 const $=id=>document.getElementById(id);
-const state={sources:[],model:null,scheme:null,domain:null,busy:false,view:"3d",viewer:null};
+const state={sources:[],model:null,scheme:null,domain:null,mesh:null,flow:null,job:null,busy:false,view:"3d",viewer:null};
 const familyNames={rectangular:"方阵",honeycomb:"蜂巢",sunflower:"向日葵",ring:"环形"};
 const fmt=(v,d=3)=>v===null||v===undefined?"—":Number(v).toLocaleString("zh-CN",{maximumFractionDigits:d});
 function notice(message,type=""){ $("notice").textContent=message;$("notice").className="notice "+type; }
@@ -9,6 +9,7 @@ function availability(){
   $("generate").disabled=state.busy||!state.model;
   for(const id of ["export-scheme","export-cad","save-image"])$(id).disabled=state.busy||!state.scheme;
   domainAvailability();
+  simulationAvailability();
 }
 function busy(on,text="处理中…"){state.busy=on;$("busy-overlay").hidden=!on;$("busy-text").textContent=text;availability();}
 async function api(path,body,headers={}){
@@ -90,10 +91,16 @@ function display(scheme){
 }
 function switchView(view){
   if(view==="domain"&&!state.domain)return;
+  if(view==="mesh"&&!state.mesh)return;
   state.view=view;$("viewer").hidden=view==="plan";$("plan-view").hidden=view!=="plan";
   $("view-3d").classList.toggle("selected",view==="3d");$("view-plan").classList.toggle("selected",view==="plan");
   $("view-domain").classList.toggle("selected",view==="domain");
-  if(view==="domain"){
+  $("view-mesh").classList.toggle("selected",view==="mesh");
+  if(view==="mesh"){
+    const mesh={...state.domain,...state.mesh.preview,triangle_roles:state.mesh.preview.triangles.map(()=>3)};
+    state.viewer?.setVolumeMesh(mesh);
+    $("view-name").textContent="体网格 · Y=0 附近单元";$("view-subtitle").textContent="真实四面体截层 · mm · 网格不是流场";
+  }else if(view==="domain"){
     state.viewer?.setDomain(state.domain,$("boundary-filter").value);state.viewer.cutaway=$("cutaway").checked;
     $("view-name").textContent="公共流体域 · 边界预览";$("view-subtitle").textContent="真实流体实体 · 边界颜色不是仿真云图";
   }else{
@@ -135,11 +142,12 @@ $("export-scheme").addEventListener("click",()=>exportScheme(false));$("export-c
 $("save-image").addEventListener("click",()=>{
   if(!state.scheme)return;
   if(state.view==="plan"){const blob=new Blob([planSvg(state.scheme)],{type:"image/svg+xml"});const url=URL.createObjectURL(blob);download(url,"nozzle_layout.svg");setTimeout(()=>URL.revokeObjectURL(url),1000);}
-  else{state.viewer?.draw();download($("viewer").toDataURL("image/png"),state.view==="domain"?"fluid_domain.png":"nozzle_assembly.png");}
+  else{state.viewer?.draw();download($("viewer").toDataURL("image/png"),state.view==="domain"?"fluid_domain.png":state.view==="mesh"?"volume_mesh.png":"nozzle_assembly.png");}
 });
 async function init(){
   try{state.viewer=new NozzleViewer($("viewer"));}catch(error){notice(error.message,"error");return;}
   initializeDomains();
-  try{const response=await fetch("/api/bootstrap"),data=await response.json();state.sources=data.models;sourceOptions();setSourceReference();if(state.sources.length)await loadModel();else notice("导入单喷嘴 STEP，即可开始设计。","neutral");}catch(error){notice(error.message,"error");}
+  initializeSimulation();
+  try{const response=await fetch("/api/bootstrap"),data=await response.json();state.sources=data.models;$("solver-capability").textContent=data.workflow.note;state.fluentAvailable=data.workflow.fluent_available;sourceOptions();setSourceReference();if(state.sources.length)await loadModel();else notice("导入单喷嘴 STEP，即可开始设计。","neutral");}catch(error){notice(error.message,"error");}
 }
 init();

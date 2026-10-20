@@ -1,0 +1,47 @@
+"""Isolated native-library entry for volume meshing and Fluent execution."""
+
+import json
+from pathlib import Path
+import sys
+import traceback
+
+ROOT = Path(__file__).absolute().parents[1]
+sys.path.insert(0,str(ROOT))
+
+
+def main(directory):
+    from nozzle_platform.workflows import save
+    payload = json.loads((directory/'job.json').read_text(encoding='utf-8'))
+    try:
+        if payload['kind']=='mesh':
+            if payload.get('gmsh_path'):
+                sys.path.insert(0,payload['gmsh_path'])
+            import gmsh
+            from nozzle_platform.volume_mesh import generate
+            gmsh.initialize([],readConfigFiles=False,interruptible=False)
+            gmsh.logger.start()
+            try:
+                gmsh.option.setNumber('General.Terminal',1)
+                gmsh.option.setNumber('General.NumThreads',1)
+                result = generate(gmsh,payload,directory)
+            finally:
+                (directory/'gmsh.log').write_text('\n'.join(gmsh.logger.get()),encoding='utf-8')
+                gmsh.finalize()
+        else:
+            from nozzle_platform.flow_solver import run
+            result = run(payload,directory)
+        response = {'ok':True,'result':result}
+    except BaseException as error:
+        traceback.print_exc()
+        native_logs = '\n'.join(path.read_text(encoding='utf-8',errors='replace') for path in directory.glob('*.trn'))
+        if payload['kind']=='flow' and 'Unexpected license problem' in native_logs:
+            response = {'ok':False,'error_code':'fluent_license_unavailable',
+                'error':'Fluent 返回许可证错误，尚未开始冷流求解。请先确认本机 Fluent 能正常启动，或在本地配置中填写已确认的学校许可服务器，再重试。体网格仍可查看和导出。'}
+        else:
+            response = {'ok':False,'error':str(error) or type(error).__name__}
+    save(directory/'result.json',response)
+    return 0 if response['ok'] else 1
+
+
+if __name__=='__main__':
+    raise SystemExit(main(Path(sys.argv[1])))

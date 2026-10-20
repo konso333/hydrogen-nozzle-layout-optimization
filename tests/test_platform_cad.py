@@ -13,6 +13,7 @@ import pytest
 from nozzle_platform.models import ModelStore
 from nozzle_platform.design import DesignStore
 from nozzle_platform.domains import DomainStore
+from nozzle_platform.workflows import WorkflowStore
 from tests.test_platform import request as design_request
 from tests.test_platform_domains import config
 
@@ -85,3 +86,36 @@ def test_generic_three_nozzle_fluid_domain_has_independent_expected_volume(sourc
         assert nozzle["oxidizer_inlet"]==1 and nozzle["fuel_inlet"]==1
         assert nozzle["area_mm2"]["oxidizer_inlet"]==pytest.approx(math.pi*2**2,rel=1e-7)
     assert not domain["volume_mesh_generated"] and not domain["fluent_executed"]
+
+
+def test_real_generic_volume_mesh_is_connected_and_uses_si_units(source,tmp_path):
+    import time
+    directory,cad_runtime,_=source
+    models=ModelStore(tmp_path/'m',gmsh_path=cad_runtime)
+    item=models.add_source('pipe.step',(directory/'source.step').read_bytes())
+    model=models.load(item['source_id'],axis='z',origin=[0,0,0])
+    designs=DesignStore(tmp_path/'d',models)
+    scheme=designs.create(design_request(model_id=model['model_id'],N=1,diameter_mm=10,spacing_mm=11))
+    domains=DomainStore(tmp_path/'f',models,designs)
+    domain=domains.create(config(scheme,chamber_start_z_mm=0,passage_radius_mm=5,upstream_z_mm=-20,
+        fuel_z_mm=-5,oxidizer_ports_per_nozzle=1,fuel_ports_per_nozzle=1,chamber_radius_mm=15,chamber_length_mm=15))
+    workflows=WorkflowStore(tmp_path/'w',domains)
+    job=workflows.start_mesh(dict(domain_id=domain['domain_id'],scheme_id=scheme['scheme_id'],
+        min_size_mm=.08,max_size_mm=3,inlet_size_mm=.15,refine_distance_mm=2))
+    end=time.monotonic()+120
+    while workflows.active is not None and time.monotonic()<end:
+        time.sleep(.1)
+    if workflows.active is not None:
+        workflows.stop(job['job_id'])
+        pytest.fail('Generic mesh exceeded test budget')
+    result=workflows.status(job['job_id'])
+    assert result['status']=='completed',result['message']
+    mesh=result['result']
+    assert mesh['units']=='m' and mesh['connected_fluid_components']==1
+    assert mesh['relative_CAD_volume_error']<.01
+    assert mesh['minimum_signed_volume_m3']>0
+    assert max(mesh['relative_boundary_area_errors'].values())<.02
+    assert mesh['bounds_m'][1][2]==pytest.approx(.015)
+    assert mesh['minimum_gmsh_minSICN']>0
+    assert mesh['domain_id']==domain['domain_id']
+    assert not mesh['fluent_executed']

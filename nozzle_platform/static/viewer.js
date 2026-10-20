@@ -24,7 +24,7 @@ class NozzleViewer {
   }
   reset(){this.yaw=-.35;this.pitch=.96;this.zoom=1;this.draw();}
   setModel(model,scheme=null){
-    this.model=model;this.scheme=scheme;this.domainMode=false;this.cutaway=false;
+    this.model=model;this.scheme=scheme;this.domainMode=false;this.cutaway=false;this.meshWire=false;
     const coordinates=scheme?scheme.coordinates_mm:[[0,0]],gl=this.gl;
     const base=new Float32Array(model.triangles.length*18);let cursor=0;
     for(const face of model.triangles){
@@ -65,6 +65,11 @@ class NozzleViewer {
     if(selected.length&&filter!=="all"){this.centerZ=(low[2]+high[2])/2;this.extent=Math.max(domain.config.chamber_radius_mm*1.2,(high[2]-low[2])*.72,10);}
     const gl=this.gl;gl.bindBuffer(gl.ARRAY_BUFFER,this.meshBuffer);gl.bufferData(gl.ARRAY_BUFFER,vertices,gl.STATIC_DRAW);this.draw();
   }
+  setVolumeMesh(mesh){
+    this.setDomain(mesh,"all");this.cutaway=false;this.meshWire=true;
+    const lines=[];for(const face of mesh.triangles){for(const [a,b] of [[0,1],[1,2],[2,0]])lines.push(...mesh.vertices[face[a]],0,0,1,...mesh.vertices[face[b]],0,0,1);}
+    const gl=this.gl;this.lineCount=lines.length/6;gl.bindBuffer(gl.ARRAY_BUFFER,this.lineBuffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(lines),gl.STATIC_DRAW);this.draw();
+  }
   draw(){
     const gl=this.gl;if(!gl)return;
     const rect=this.canvas.getBoundingClientRect(),pixelRatio=Math.min(devicePixelRatio||1,2);
@@ -80,6 +85,7 @@ class NozzleViewer {
     const bind=(buffer,colored=false)=>{gl.bindBuffer(gl.ARRAY_BUFFER,buffer);const stride=colored?36:24;gl.enableVertexAttribArray(this.position);gl.vertexAttribPointer(this.position,3,gl.FLOAT,false,stride,0);gl.enableVertexAttribArray(this.normal);gl.vertexAttribPointer(this.normal,3,gl.FLOAT,false,stride,12);if(colored){gl.enableVertexAttribArray(this.tint);gl.vertexAttribPointer(this.tint,3,gl.FLOAT,false,stride,24);}else{gl.disableVertexAttribArray(this.tint);gl.vertexAttrib3f(this.tint,1,1,1);}};
     bind(this.lineBuffer);gl.uniform3f(this.locations.color,.80,.86,.87);gl.uniform1i(this.locations.lines,1);gl.drawArrays(gl.LINES,0,this.lineCount);
     bind(this.meshBuffer,!!this.domainMode);gl.uniform3f(this.locations.color,.40,.69,.65);gl.uniform1i(this.locations.lines,0);gl.drawArrays(gl.TRIANGLES,0,this.count);
+    if(this.meshWire){bind(this.lineBuffer);gl.uniform1i(this.locations.lines,1);gl.uniform3f(this.locations.color,.14,.28,.26);gl.drawArrays(gl.LINES,0,this.lineCount);}
   }
 }
 window.NozzleViewer=NozzleViewer;

@@ -35,7 +35,7 @@ def main():
         if (candidate / "gmsh.py").is_file():
             gmsh_path = candidate
     try:
-        server = PlatformServer(("127.0.0.1", args.port), ROOT / "outputs" / "platform", archive=archive, gmsh_path=gmsh_path)
+        server = PlatformServer(("127.0.0.1", args.port), ROOT / "outputs" / "platform", archive=archive, gmsh_path=gmsh_path,fluent=config.get('fluent'))
     except OSError as exc:
         if getattr(exc, "winerror", None) == 10048 or exc.errno in {48, 98, 10048}:
             existing_url = f"http://127.0.0.1:{args.port}"
@@ -51,7 +51,7 @@ def main():
                 raise SystemExit(f"Port {args.port} is in use. Close the other application or use --port 8766.") from exc
         raise
     url = f"http://127.0.0.1:{server.server_port}"
-    print(f"Nozzle platform: {url}\nClose with Ctrl+C. Milestone 2: shared fluid CAD; volume meshing and Fluent are not connected.", flush=True)
+    print(f"Nozzle platform: {url}\nClose with Ctrl+C. Milestone 3: volume mesh and bounded nonreacting Fluent trial.", flush=True)
     if not args.no_browser:
         threading.Timer(.7, lambda: webbrowser.open(url)).start()
     try:

@@ -11,6 +11,7 @@ function domainAvailability(){
   for(const id of ["cutaway","boundary-filter"])$(id).disabled=state.busy||!state.domain;
 }
 function invalidateDomain(){
+  invalidateMesh();
   state.domain=null;$("domain-results").hidden=true;$("boundary-cards").replaceChildren();
   if(state.view==="domain")switchView("3d");
 }

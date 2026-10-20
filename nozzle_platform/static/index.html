@@ -5,13 +5,14 @@
   <title>多喷嘴阵列设计 · Nozzle Lab</title>
   <link rel="stylesheet" href="/app.css">
   <link rel="stylesheet" href="/domain.css">
-  <script src="/viewer.js" defer></script><script src="/domain.js" defer></script><script src="/app.js" defer></script>
+  <link rel="stylesheet" href="/simulation.css">
+  <script src="/viewer.js" defer></script><script src="/domain.js" defer></script><script src="/simulation.js" defer></script><script src="/app.js" defer></script>
 </head>
 <body>
   <header class="topbar">
     <div class="brand"><span class="brand-icon">✣</span><div>NOZZLE LAB<small>多喷嘴设计工作台</small></div></div>
-    <nav aria-label="开发阶段"><span class="step active"><b>01</b> 阵列设计</span><a class="step domain-step" href="#domain-form"><b>02</b> 流体域与边界</a><span class="step"><b>03</b> Fluent 仿真 <small>待接入</small></span></nav>
-    <span class="local"><i></i> 本地运行 · 节点 2</span>
+    <nav aria-label="开发阶段"><span class="step active"><b>01</b> 阵列设计</span><a class="step domain-step" href="#domain-form"><b>02</b> 流体域与边界</a><a class="step domain-step" href="#simulation-form"><b>03</b> 网格与冷流</a></nav>
+    <span class="local"><i></i> 本地运行 · 节点 3</span>
   </header>
   <main>
     <aside class="sidebar">
@@ -67,22 +68,45 @@
           </section>
         </fieldset>
       </form>
+      <form id="simulation-form">
+        <section class="form-section">
+          <div class="section-title"><span>05</span><h2>体网格与冷流</h2><span class="tag" id="mesh-state">先构建流体域</span></div>
+          <fieldset id="mesh-fieldset" disabled>
+            <div class="two-fields"><div><label for="mesh-max">最大尺寸 / mm</label><input id="mesh-max" type="number" value="4" min="0.02" max="20" step="any" required></div><div><label for="mesh-inlet">入口尺寸 / mm</label><input id="mesh-inlet" type="number" value="0.08" min="0.02" step="any" required></div></div>
+            <details><summary>网格细化设置</summary><label for="mesh-algorithm">体网格算法</label><select id="mesh-algorithm"><option value="delaunay">Delaunay</option><option value="hxt">HXT</option></select><label for="mesh-passage">内部流道最大尺寸 / mm</label><input id="mesh-passage" type="number" value="0.5" min="0.02" step="any" required><label for="mesh-curvature">每圈曲率采样</label><input id="mesh-curvature" type="number" value="20" min="16" max="64" step="1" required><div class="two-fields"><div><label for="mesh-min">最小尺寸 / mm</label><input id="mesh-min" type="number" value="0.04" min="0.02" step="any" required></div><div><label for="mesh-distance">入口加密范围 / mm</label><input id="mesh-distance" type="number" value="2" min="0.02" max="100" step="any" required></div></div></details>
+            <button id="build-mesh" class="button primary" type="submit" disabled>生成并检查体网格 ↗</button>
+            <p class="hint">一阶四面体，检查连通性、边界、体积和单元质量。当前不含边界层。</p>
+          </fieldset>
+          <fieldset id="flow-fieldset" disabled>
+            <h3 class="flow-subtitle">非反应氢气／空气试算</h3>
+            <p class="hint" id="solver-capability">正在检查本机 Fluent 环境…</p>
+            <div class="two-fields"><div><label for="flow-fuel">氢气入口速度 / m/s</label><input id="flow-fuel" type="number" value="1" min="0.001" max="100" step="any" required></div><div><label for="flow-air">空气入口速度 / m/s</label><input id="flow-air" type="number" value="1" min="0.001" max="100" step="any" required></div></div>
+            <div class="two-fields"><div><label for="flow-temperature">入口温度 / K</label><input id="flow-temperature" type="number" value="300" min="200" max="600" step="any" required></div><div><label for="flow-iterations">最多计算步数</label><input id="flow-iterations" type="number" value="100" min="1" max="500" step="1" required></div></div>
+            <label for="flow-oxygen">空气中氧气质量分数</label><input id="flow-oxygen" type="number" value="0.233" min="0.001" max="0.999" step="any" required>
+            <p class="hint">稳态层流、组分输运、反应关闭、绝热壁面，出口表压 0 Pa，工作压力 101325 Pa。参数为可编辑试算示例。</p>
+            <button id="run-flow" class="button dark" type="button" disabled>运行 Fluent 冷流 ↗</button>
+          </fieldset>
+          <div id="job-panel" class="job-panel" hidden role="status" aria-live="polite"><strong id="job-message"></strong><p>任务在本机执行，可停止；停止后保留本次记录。</p><button id="stop-job" class="button secondary" type="button">停止当前任务</button></div>
+        </section>
+      </form>
     </aside>
     <div class="workspace">
-      <div class="workspace-heading"><div><span class="eyebrow">ARRAY DESIGN STUDIO</span><h2>从单喷嘴，到公共流体域<span>。</span></h2><p id="workspace-caption">先设计阵列，再建立用于后续计算的公共流体域。</p></div><span class="version">设计与几何 v0.2</span></div>
+      <div class="workspace-heading"><div><span class="eyebrow">ARRAY DESIGN STUDIO</span><h2>从阵列设计，到冷流试算<span>。</span></h2><p id="workspace-caption">设计阵列、构建流体域、检查体网格，再运行 Fluent。</p></div><span class="version">网格与冷流 v0.3</span></div>
       <div id="notice" class="notice" role="status" aria-live="polite">正在读取本地模型目录…</div>
       <section class="viewer-card">
-        <div class="viewer-toolbar"><div class="view-tabs"><button id="view-3d" class="selected" type="button">三维装配</button><button id="view-plan" type="button">二维排布</button><button id="view-domain" type="button" disabled>流体域</button></div><div class="viewer-actions"><button id="reset-view" type="button">重置视角</button><button id="save-image" type="button" disabled>保存图像 ↓</button></div></div>
+        <div class="viewer-toolbar"><div class="view-tabs"><button id="view-3d" class="selected" type="button">三维装配</button><button id="view-plan" type="button">二维排布</button><button id="view-domain" type="button" disabled>流体域</button><button id="view-mesh" type="button" disabled>体网格</button></div><div class="viewer-actions"><button id="reset-view" type="button">重置视角</button><button id="save-image" type="button" disabled>保存图像 ↓</button></div></div>
         <div class="viewport" id="viewport"><canvas id="viewer" aria-label="可拖动旋转、滚轮缩放的真实喷嘴三维预览"></canvas><div id="plan-view" hidden></div><div class="view-label"><span id="view-name">单喷嘴预览</span><small id="view-subtitle">真实 STEP 曲面 · mm</small></div><div class="view-guide" id="view-guide">拖动旋转 · 滚轮缩放</div><div id="empty-state"><span>✣</span><h3>从一个喷嘴开始</h3><p>载入模型，建立你的阵列。</p></div><div id="busy-overlay" hidden><div class="spinner"></div><strong id="busy-text">处理中…</strong><small>程序正在本机执行，请稍候。</small></div></div>
         <div class="viewer-footer"><span><i></i><span id="viewer-status">等待模型</span></span><span>XY 安装平面 · +Z 喷嘴轴向</span></div>
       </section>
       <section id="domain-results" class="domain-results" hidden>
         <div class="domain-result-heading"><div><span class="eyebrow">SHARED FLUID DOMAIN</span><h3>公共流体域与边界</h3><p id="domain-summary"></p></div><div class="domain-view-controls"><label class="check-label"><input id="cutaway" type="checkbox" checked><span>剖开查看公共腔</span></label><select id="boundary-filter" aria-label="选择显示的边界"><option value="all">全部边界</option><option value="inlets">只看空气／氢气入口</option><option value="outlet">只看出口</option><option value="wall">只看壁面</option></select></div></div>
-        <div class="boundary-cards" id="boundary-cards"></div><p class="scope">颜色仅区分几何边界，不是仿真云图。流体域已按模板标记，体网格与求解将在下一节点接入。</p>
+        <div class="boundary-cards" id="boundary-cards"></div><p class="scope">颜色仅区分几何边界，不是仿真云图。可继续在左侧生成体网格并运行非反应冷流。</p>
       </section>
+      <section id="mesh-results" class="simulation-results" hidden><div class="results-heading"><div><span class="eyebrow">VOLUME MESH</span><h3>体网格检查</h3><p id="mesh-summary"></p></div><button id="export-mesh" class="button secondary" type="button">导出网格包 ↓</button></div><div id="mesh-cards" class="simulation-cards"></div><p class="scope">Gmsh minSICN 与 Fluent 正交质量分别核实。三维视图为 Y=0 附近的真实体单元截层；无边界层、尚未验证网格无关性。</p></section>
+      <section id="flow-results" class="simulation-results" hidden><div class="results-heading"><div><span class="eyebrow">FLUENT COLD FLOW</span><h3>冷流试算结果</h3><p id="flow-summary"></p></div><button id="export-flow" class="button secondary" type="button">导出计算结果 ↓</button></div><div id="flow-cards" class="simulation-cards"></div><div id="residual-chart" class="residual-chart"></div><div class="table-wrap"><table><thead><tr><th>边界</th><th>质量流量 / kg·s⁻¹</th><th>入口至出口总压差 / Pa</th></tr></thead><tbody id="flow-table"></tbody></table></div><p class="scope">真实 Fluent 非反应试算；入口流入为正，出口流出为负。氢气平衡项仅计对流输运。达到步数预算不表示收敛，数值检查通过也不表示物理模型或网格已验证。</p></section>
       <section class="metrics" aria-label="几何检查结果"><div><span>实际喷嘴数量</span><strong id="metric-count">—</strong><small>目标数量保持不变</small></div><div><span>最小中心距</span><strong id="metric-spacing">—</strong><small>mm</small></div><div><span>最小净间隙</span><strong id="metric-gap">—</strong><small>mm · 整体包络之间</small></div><div><span>最小边缘余量</span><strong id="metric-wall">—</strong><small>mm · 相对安装边界</small></div></section>
-      <section class="results-card"><div class="results-heading"><div><h3>方案与坐标</h3><p id="result-note">生成后可检查坐标，导出参数与真实实体阵列。</p></div><div class="export-actions"><button id="export-scheme" class="button secondary" type="button" disabled>导出方案 ↓</button><button id="export-cad" class="button dark" type="button" disabled>导出实体 STEP ↓</button></div></div><div class="table-wrap"><table><thead><tr><th>喷嘴编号</th><th>X / mm</th><th>Y / mm</th><th>Z / mm</th><th>检查状态</th></tr></thead><tbody id="coordinate-rows"><tr><td colspan="5" class="empty-table">尚未生成阵列</td></tr></tbody></table></div><p class="scope">阵列设计完成后，可在左侧构建内部通道与公共燃烧室相连的流体域。体网格和 Fluent 求解尚待接入。</p></section>
-      <footer class="page-footer"><span>NOZZLE LAB / 流体域与边界节点</span><span>模型与计算文件保存在本机</span></footer>
+      <section class="results-card"><div class="results-heading"><div><h3>方案与坐标</h3><p id="result-note">生成后可检查坐标，导出参数与真实实体阵列。</p></div><div class="export-actions"><button id="export-scheme" class="button secondary" type="button" disabled>导出方案 ↓</button><button id="export-cad" class="button dark" type="button" disabled>导出实体 STEP ↓</button></div></div><div class="table-wrap"><table><thead><tr><th>喷嘴编号</th><th>X / mm</th><th>Y / mm</th><th>Z / mm</th><th>检查状态</th></tr></thead><tbody id="coordinate-rows"><tr><td colspan="5" class="empty-table">尚未生成阵列</td></tr></tbody></table></div><p class="scope">阵列设计完成后，可在左侧构建公共流体域、生成体网格并设置非反应冷流试算；实际求解需要可用的本机 Fluent 许可证。</p></section>
+      <footer class="page-footer"><span>NOZZLE LAB / 体网格与冷流节点</span><span>模型与计算文件保存在本机</span></footer>
     </div>
   </main>
 </body>

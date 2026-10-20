@@ -153,7 +153,9 @@ def test_browser_page_is_local_and_has_no_remote_dependency(server):
     assert status==200 and "生成阵列" in raw.decode()
     assert b"https://" not in raw
     assert "frame-ancestors 'none'" in headers["Content-Security-Policy"]
-    assert json.loads(call(server,"GET","/api/bootstrap")[1])["simulation_available"] is False
+    bootstrap=json.loads(call(server,"GET","/api/bootstrap")[1])
+    assert bootstrap["milestone"]==3
+    assert bootstrap["simulation_available"]==bootstrap['workflow']['fluent_available']
     assert call(server,"GET","/../../models/source.step")[0]==404
 
 
@@ -172,3 +174,7 @@ def test_http_rejects_nonfinite_and_invalid_payloads(server):
     assert call(server,"POST","/api/generate",b'{"N":NaN}',headers)[0]==400
     assert call(server,"POST","/api/generate",b'[]',headers)[0]==400
     assert call(server,"POST","/api/export",b'{"cad":"yes"}',headers)[0]==400
+    assert call(server,'POST','/api/mesh',b'{}',headers)[0]==400
+    assert call(server,'POST','/api/coldflow',b'{}',headers)[0]==400
+    assert call(server,'POST','/api/stop-job',b'{"job_id":"other"}',headers)[0]==400
+    assert call(server,'GET','/api/jobs/missing')[0]==404

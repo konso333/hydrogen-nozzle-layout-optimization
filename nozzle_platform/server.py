@@ -11,6 +11,7 @@ from urllib.parse import unquote, urlsplit
 from nozzle_platform.design import DesignStore
 from nozzle_platform.domains import DomainStore
 from nozzle_platform.models import MAX_UPLOAD_BYTES, ModelStore
+from nozzle_platform.workflows import WorkflowStore
 
 
 STATIC = Path(__file__).with_name("static")
@@ -25,17 +26,18 @@ class PlatformServer(ThreadingHTTPServer):
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         super().server_bind()
 
-    def __init__(self, address, root, *, archive=None, gmsh_path=None):
+    def __init__(self, address, root, *, archive=None, gmsh_path=None, fluent=None):
         if address[0] != "127.0.0.1":
             raise ValueError("The local application only binds to 127.0.0.1.")
         self.models = ModelStore(Path(root) / "models", archive=archive, gmsh_path=gmsh_path)
         self.designs = DesignStore(Path(root) / "designs", self.models)
         self.domains = DomainStore(Path(root) / "domains", self.models, self.designs)
+        self.workflows = WorkflowStore(Path(root) / "workflows", self.domains, fluent=fluent)
         super().__init__(address, Handler)
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "NozzlePlatform/0.2"
+    server_version = "NozzlePlatform/0.3"
 
     def log_message(self, fmt, *args):
         print(fmt % args, flush=True)
@@ -66,17 +68,24 @@ class Handler(BaseHTTPRequestHandler):
             return self.json({"error": "仅接受本机访问。"}, 403)
         path = urlsplit(self.path).path
         if path == "/api/bootstrap":
-            return self.json({"milestone": 2, "version": "0.2.0", "models": self.server.models.catalog(),
-                              "simulation_available": False, "power_basis": "fuel_input"})
+            return self.json({"milestone": 3, "version": "0.3.0", "models": self.server.models.catalog(),
+                              "simulation_available": self.server.workflows.capability()['fluent_available'],
+                              "workflow":self.server.workflows.capability(), "power_basis": "fuel_input"})
+        if path.startswith('/api/jobs/'):
+            try:
+                return self.json(self.server.workflows.status(path.removeprefix('/api/jobs/')))
+            except ValueError as error:
+                return self.json({'error':str(error)},404)
         if path.startswith("/downloads/"):
             key = path.removeprefix("/downloads/")
             with self.server.designs.lock:
                 file = self.server.designs.downloads.get(key)
             if not file or not file.is_file():
                 return self.json({"error": "下载已失效，请重新导出。"}, 404)
-            return self.send_data(file.read_bytes(), "application/zip", attachment="nozzle_array.zip")
+            filename = file.name if file.name.isascii() else 'nozzle_result.zip'
+            return self.send_data(file.read_bytes(), "application/zip", attachment=filename)
         files = {"/": "index.html", "/app.js": "app.js", "/app.css": "app.css", "/viewer.js": "viewer.js",
-                 "/domain.js":"domain.js","/domain.css":"domain.css"}
+                 "/domain.js":"domain.js","/domain.css":"domain.css",'/simulation.js':'simulation.js','/simulation.css':'simulation.css'}
         if path not in files:
             return self.json({"error": "页面不存在。"}, 404)
         file = STATIC / files[path]
@@ -110,6 +119,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(self.server.designs.create(data))
             if path == "/api/domain":
                 return self.json(self.server.domains.create(data))
+            if path == '/api/mesh':
+                return self.json(self.server.workflows.start_mesh(data),202)
+            if path == '/api/coldflow':
+                return self.json(self.server.workflows.start_flow(data),202)
+            if path == '/api/stop-job':
+                return self.json(self.server.workflows.stop(data.get('job_id')))
+            if path == '/api/export-result':
+                return self.json(self.server.workflows.export(data.get('result_id'),data.get('domain_id'),data.get('scheme_id')))
             if path == "/api/export-domain":
                 return self.json(self.server.domains.export(data.get("domain_id"),data.get("scheme_id")))
             if path == "/api/export":
