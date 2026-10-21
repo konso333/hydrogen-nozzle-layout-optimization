@@ -29,9 +29,25 @@ function displayFlow(flow){
   state.flow=flow;$("flow-results").hidden=false;const last=flow.history.at(-1);
   $("flow-summary").textContent=`已计算 ${flow.iterations_completed} 步 · ${flow.numerical_criteria_met?"达到设定数值检查标准":"达到步数预算，尚未收敛"} · ${flow.polyhedral_conversion_performed?"已转换多面体":"四面体"}`;
   $("flow-summary").className=flow.numerical_criteria_met?"passed":"pending";
-  cards("flow-cards",[["实际计算步数",flow.iterations_completed,"Fluent 保存文件核实"],["最小正交质量",fmt(flow.minimum_fluent_orthogonal_quality,4),"Fluent 指标 ≥ 0.05"],["质量相对不平衡",fmt(last.relative_mass_imbalance*100,3)+"%","总边界质量流量"],["氢气对流不平衡",fmt(last.h2_relative_convective_imbalance*100,3)+"%","未单独计扩散通量"]]);
+  cards("flow-cards",[["实际计算步数",flow.iterations_completed,"Fluent 保存文件核实"],["最小正交质量",fmt(flow.minimum_fluent_orthogonal_quality,4),"本模板筛选值 ≥ 0.1"],["最大长宽比",fmt(flow.maximum_fluent_aspect_ratio,2),"本模板筛选值 ≤ 100"],["连续通过批次",`${flow.convergence_assessment.consecutive_passing_blocks} / ${flow.convergence_assessment.required_consecutive_blocks}`,"每批次完整检查 25 步"]]);
   $("flow-table").replaceChildren();for(const [role,[name]] of Object.entries(domainRoleInfo)){const row=document.createElement("tr");for(const text of [name,last.mass_flow_kg_s[role].toExponential(6),last.area_weighted_total_pressure_drop_Pa[role]===undefined?"—":fmt(last.area_weighted_total_pressure_drop_Pa[role],5)]){const cell=document.createElement("td");cell.textContent=text;row.append(cell);}$("flow-table").append(row);}
-  drawResiduals(flow.history);availability();
+  displayConvergence(flow.convergence_assessment);displayQualityHistory(flow);drawResiduals(flow.history);availability();
+}
+function displayConvergence(report){
+  const labels={relative_mass_imbalance:"质量相对不平衡",h2_relative_convective_imbalance:"氢气对流不平衡",relative_pressure_drop_change:"相邻批次压降变化"};
+  $("convergence-note").textContent=`至少 ${report.minimum_iterations} 步：${report.minimum_iterations_met?"已满足":"未满足"}；连续 ${report.required_consecutive_blocks} 个完整批次通过：${report.sustained_checks_met?"已满足":"未满足"}。残差检查使用批次内全部 25 步的最大值。`;
+  $("convergence-checks").replaceChildren();
+  for(const check of report.checks){
+    const residual=check.name.startsWith("residual:"),label=residual?check.name.slice(9)+" 缩放残差":labels[check.name];
+    const value=check.value===null?"等待下一批":residual?check.value.toExponential(3):fmt(check.value*100,5)+"%";
+    const limit=(check.inclusive?"≤ ":"< ")+(residual?check.limit.toExponential(0):fmt(check.limit*100,2)+"%");
+    const row=document.createElement("tr");for(const text of [label,value,limit,check.passed?"通过":"未通过"]){const cell=document.createElement("td");cell.textContent=text;row.append(cell);}row.lastChild.className=check.passed?"check-passed":"check-pending";$("convergence-checks").append(row);
+  }
+}
+function displayQualityHistory(flow){
+  $("quality-checks").replaceChildren();
+  const names={imported_tetra:"导入四面体",direct_polyhedra:"直接转换多面体",restored_best:"恢复最佳网格"};
+  for(const stage of flow.mesh_quality_history){const row=document.createElement("tr");for(const text of [names[stage.stage]||`内部改善 ${stage.improvement_passes}`,fmt(stage.minimum_orthogonal_quality,5),fmt(stage.maximum_aspect_ratio,2),stage.retained_as_best?"保留检查点":"未替换最佳网格"]){const cell=document.createElement("td");cell.textContent=text;row.append(cell);}$("quality-checks").append(row);}
 }
 function drawResiduals(history){
   const names=["continuity","x-velocity","y-velocity","z-velocity","energy","h2","o2","h2o"],colors=["#237b61","#3691c9","#c27c25","#9562b7","#be5462","#535fc0","#70872a","#4c9893"];
@@ -47,6 +63,7 @@ function drawResiduals(history){
 }
 async function startSimulation(kind,request){
   busy(true,"正在创建本机任务…");
+  $("job-diagnostics").hidden=true;$("job-diagnostics").textContent="";
   try{
     const job=await api(kind==="mesh"?"/api/mesh":"/api/coldflow",request);state.job=job.job_id;
     $("busy-overlay").hidden=true;$("job-panel").hidden=false;availability();
@@ -54,7 +71,13 @@ async function startSimulation(kind,request){
       const response=await fetch("/api/jobs/"+state.job);const task=await response.json();if(!response.ok)throw new Error(task.error);
       $("job-message").textContent=task.message;
       if(task.status==="completed"){if(kind==="mesh")displayMesh(task.result);else displayFlow(task.result);notice(kind==="mesh"?"体网格已生成并通过几何、边界和质量检查。可导出网格或运行 Fluent 冷流。":"Fluent 冷流试算已结束，请查看实际数据与收敛状态。");break;}
-      if(["failed","cancelled"].includes(task.status))throw new Error(task.message);
+      if(["failed","cancelled"].includes(task.status)){
+        const diagnostics=task.diagnostics||{},parts=[task.message];
+        if(diagnostics.minimum_fluent_orthogonal_quality!==undefined)parts.push(`保留网格：最低正交质量 ${fmt(diagnostics.minimum_fluent_orthogonal_quality,5)}，最大长宽比 ${fmt(diagnostics.maximum_fluent_aspect_ratio,2)}。`);
+        if(diagnostics.iterations_completed)parts.push(`已保存至 ${diagnostics.iterations_completed} 步，未生成完整成功结果。`);
+        $("job-diagnostics").textContent=parts.join(" ");$("job-diagnostics").hidden=false;
+        throw new Error(task.message);
+      }
       await new Promise(resolve=>setTimeout(resolve,1200));
     }
   }catch(error){notice(error.message,"error");$("job-message").textContent=error.message;}

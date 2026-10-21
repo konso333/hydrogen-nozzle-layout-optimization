@@ -37,7 +37,7 @@ class PlatformServer(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "NozzlePlatform/0.3"
+    server_version = "NozzlePlatform/0.4"
 
     def log_message(self, fmt, *args):
         print(fmt % args, flush=True)
@@ -68,7 +68,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.json({"error": "仅接受本机访问。"}, 403)
         path = urlsplit(self.path).path
         if path == "/api/bootstrap":
-            return self.json({"milestone": 3, "version": "0.3.0", "models": self.server.models.catalog(),
+            return self.json({"milestone": 4, "version": "0.4.0", "models": self.server.models.catalog(),
                               "simulation_available": self.server.workflows.capability()['fluent_available'],
                               "workflow":self.server.workflows.capability(), "power_basis": "fuel_input"})
         if path.startswith('/api/jobs/'):

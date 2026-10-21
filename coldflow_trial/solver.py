@@ -153,7 +153,7 @@ def verify_preserved(before, after, config):
                 f"Changed numerical scheme: {field}")
 
 
-def parse_residuals(text, start, end):
+def parse_residual_history(text, start, end):
     columns = None
     rows = {}
     for line in text.splitlines():
@@ -172,7 +172,11 @@ def parse_residuals(text, start, end):
             require(all(math.isfinite(value) and value >= 0 for value in values.values()), "Invalid residual")
             rows[index] = values
     require(set(rows) == set(range(start + 1, end + 1)), "Incomplete transcript iteration history")
-    return rows[end]
+    return rows
+
+
+def parse_residuals(text, start, end):
+    return parse_residual_history(text, start, end)[end]
 
 
 def block_reports(session, config, previous):

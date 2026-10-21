@@ -154,7 +154,7 @@ def test_browser_page_is_local_and_has_no_remote_dependency(server):
     assert b"https://" not in raw
     assert "frame-ancestors 'none'" in headers["Content-Security-Policy"]
     bootstrap=json.loads(call(server,"GET","/api/bootstrap")[1])
-    assert bootstrap["milestone"]==3
+    assert bootstrap["milestone"]==4
     assert bootstrap["simulation_available"]==bootstrap['workflow']['fluent_available']
     assert call(server,"GET","/../../models/source.step")[0]==404
 

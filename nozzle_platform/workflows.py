@@ -24,7 +24,8 @@ FLOW_KEYS = {'mesh_id','domain_id','scheme_id','fuel_velocity_m_s','oxidizer_vel
              'temperature_K','oxidizer_o2_mass_fraction','iterations'}
 IMPLEMENTATION = ('nozzle_platform/workflows.py','nozzle_platform/workflow_worker.py',
     'nozzle_platform/volume_mesh.py','nozzle_platform/domain_cad.py','nozzle_platform/flow_solver.py',
-    'nozzle_platform/flow_validation.py','coldflow_trial/solver.py','coldflow_trial/processes.py',
+    'nozzle_platform/flow_validation.py','nozzle_platform/mesh_quality.py','nozzle_platform/convergence.py',
+    'coldflow_trial/solver.py','coldflow_trial/processes.py',
     'fluent_execution/process.py')
 
 
@@ -35,7 +36,17 @@ def sha256(path):
 def save(path, data):
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(data,ensure_ascii=False,allow_nan=False,indent=2),encoding='utf-8')
-    temporary.replace(path)
+    # A Windows reader can briefly hold a handle that disallows replacement.
+    # Keep atomic publication; retry only sharing/access violations, bounded
+    # to less than a second. Persistent permission errors must still fail.
+    for attempt in range(8):
+        try:
+            temporary.replace(path)
+            return
+        except PermissionError as error:
+            if getattr(error,'winerror',None) not in {5,32,33} or attempt == 7:
+                raise
+            time.sleep(min(.01 * 2**attempt,.1))
 
 
 def normalize_mesh(request):
@@ -223,7 +234,7 @@ class WorkflowStore:
                 if cancel.is_set():
                     raise InterruptedError('任务已由用户停止。')
                 result = response['result']
-                names = ['flow.msh','flow.gmsh.msh','mesh_arrays.npz'] if kind=='mesh' else ['final.cas.h5','final.dat.h5','history.csv','fluent.trn','configured.json']
+                names = ['flow.msh','flow.gmsh.msh','mesh_arrays.npz'] if kind=='mesh' else ['final.cas.h5','final.dat.h5','history.csv','residuals.csv','fluent.trn','configured.json','mesh_quality.json','quality_history.json']
                 result.update(kind=kind,result_id=job_id,**{k:payload['config'][k] for k in ('domain_id','scheme_id')},
                     config=payload['config'],source_sha256=payload['domain']['source_sha256'],
                     engine=payload['engine'],implementation_sha256=payload['implementation_sha256'],
@@ -237,6 +248,10 @@ class WorkflowStore:
         except Exception as error:
             with self.lock:
                 self.jobs[job_id].update(status='cancelled' if isinstance(error,InterruptedError) else 'failed',message=str(error),result=None)
+                if isinstance(error,TimeoutError):
+                    self.jobs[job_id]['error_code'] = 'time_budget_exceeded'
+                elif isinstance(error,InterruptedError):
+                    self.jobs[job_id]['error_code'] = 'user_cancelled'
         finally:
             try:
                 if job:
@@ -269,6 +284,19 @@ class WorkflowStore:
                         self.results.pop(job_id,None)
                         self.folders.pop(job_id,None)
             with self.lock:
+                if not candidate:
+                    # Only whitelisted, server-generated diagnostics; never
+                    # expose job.json, native paths or licensing credentials.
+                    diagnostics = {}
+                    for name,fields in [('mesh_quality.json',('mesh_quality_accepted','minimum_fluent_orthogonal_quality','maximum_fluent_aspect_ratio','mesh_quality_limits')),
+                                        ('partial.json',('iterations_completed','convergence_assessment'))]:
+                        try:
+                            data = json.loads((folder/name).read_text(encoding='utf-8'))
+                            diagnostics.update({key:data[key] for key in fields if key in data})
+                        except (OSError,ValueError,KeyError):
+                            pass
+                    if diagnostics:
+                        self.jobs[job_id]['diagnostics'] = diagnostics
                 if candidate:
                     if cancel.is_set():
                         self.jobs[job_id].update(status='cancelled',message='任务已由用户停止。',result=None)
@@ -299,9 +327,11 @@ class WorkflowStore:
             for name in result['artifact_sha256']:
                 bundle.write(folder/name,name)
             bundle.writestr('report.json',json.dumps({k:v for k,v in result.items() if k!='preview'},ensure_ascii=False,indent=2))
-            bundle.writestr('README.txt',('M11 本地工程验证结果\nflow.msh / mesh_arrays.npz 单位 m；平台显示 mm。\n'
+            bundle.writestr('README.txt',('M12 本地工程验证结果\nflow.msh / mesh_arrays.npz 单位 m；平台显示 mm。\n'
                 'Gmsh minSICN 与 Fluent 正交质量为不同指标。无边界层，尚未验证网格无关性。\n'
                 '冷流使用非反应氢气/空气，稳态层流，一阶迎风；达到步数预算不表示收敛。\n'
+                '正交质量需 >= 0.1 且长宽比 <= 100（本模板筛选值），修复过程见 quality_history.json。\n'
+                '连续两个完整 25 步批次的全部残差均需通过，且至少计算 100 步；逐步残差见 residuals.csv。\n'
                 '工况参数、来源哈希、质量指标与收敛状态见 report.json。不得用本试算判断燃烧性能。\n').encode('utf-8'))
         key = uuid.uuid4().hex
         with self.domains.designs.lock:

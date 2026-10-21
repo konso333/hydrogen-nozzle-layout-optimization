@@ -38,7 +38,10 @@ def main(directory):
             response = {'ok':False,'error_code':'fluent_license_unavailable',
                 'error':'Fluent 返回许可证错误，尚未开始冷流求解。请先确认本机 Fluent 能正常启动，或在本地配置中填写已确认的学校许可服务器，再重试。体网格仍可查看和导出。'}
         else:
-            response = {'ok':False,'error':str(error) or type(error).__name__}
+            rejected = directory/'mesh_quality.json'
+            mesh_rejected = rejected.exists() and not json.loads(rejected.read_text(encoding='utf-8'))['mesh_quality_accepted']
+            response = {'ok':False,'error':str(error) or type(error).__name__,
+                'error_code':'mesh_quality_rejected' if mesh_rejected else 'worker_failed'}
     save(directory/'result.json',response)
     return 0 if response['ok'] else 1
 

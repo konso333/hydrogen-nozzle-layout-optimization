@@ -7,10 +7,12 @@ import re
 
 from coldflow_trial.config import EQUATIONS
 from coldflow_trial.processes import OwnedProcesses, cleanup_records
-from coldflow_trial.solver import (launch_session, snapshot, verify_physics, parse_residuals,
-                                  block_reports, saved_iteration, passes, require)
+from coldflow_trial.solver import (launch_session, snapshot, verify_physics, parse_residual_history,
+                                  block_reports, saved_iteration, require)
 from nozzle_platform.workflows import save
 from nozzle_platform.flow_validation import case_openings, case_volume, verify_saved_fluxes
+from nozzle_platform.mesh_quality import condition_mesh
+from nozzle_platform.convergence import CRITERIA, BLOCK_SIZE, checks, assessment
 
 
 def quality_from_transcript(path):
@@ -32,8 +34,7 @@ def run(payload, directory):
         'backflow_temperature_K':config['temperature_K'],'operating_pressure_Pa':101325.}
     settings = {'fluent':payload['fluent'],'expected_conditions':expected,
         'boundaries':{k:k for k in ('fuel_inlet','oxidizer_inlet','outlet','wall')}}
-    criteria = {'scaled_residuals':{name:1e-6 if name=='energy' else 1e-4 for name in EQUATIONS},
-        'relative_mass_imbalance':.005,'h2_relative_convective_imbalance':.005,'relative_pressure_drop_change':.01}
+    criteria = CRITERIA
     tracker = OwnedProcesses(payload['fluent']['executable'],directory)
     session = None
     state = {'fluent_executed':False,'scientific_eligible':False,'chemical_reactions_enabled':False,
@@ -59,33 +60,7 @@ def run(payload, directory):
         expected_patches = {k:payload['domain']['boundary_patch_counts'][k] for k in ('fuel_inlet','oxidizer_inlet','outlet')}
         state['imported_opening_counts'] = case_openings(directory/'imported.cas.h5')
         require(state['imported_opening_counts']==expected_patches,'Fluent 导入后实际连通开口数量改变。')
-        session.settings.mesh.quality()
-        state['imported_tetra_minimum_orthogonal_quality'] = quality_from_transcript(directory/'fluent.trn')
-        state['polyhedral_conversion_performed'] = False
-        state['minimum_fluent_orthogonal_quality'] = state['imported_tetra_minimum_orthogonal_quality']
-        state['interior_improvement_passes'] = 0
-        def improve_interior():
-            session.tui.mesh.repair_improve.allow_repair_at_boundaries('no')
-            session.tui.mesh.repair_improve.include_local_polyhedra_conversion_in_repair('yes' if state['polyhedral_conversion_performed'] else 'no')
-            state['interior_improvement_passes'] += 1
-            progress(f'正在进行第 {state["interior_improvement_passes"]} 次内部网格改善，不移动边界')
-            session.tui.mesh.repair_improve.improve_quality()
-            session.settings.mesh.check()
-            session.settings.mesh.quality()
-            state['minimum_fluent_orthogonal_quality'] = quality_from_transcript(directory/'fluent.trn')
-        while state['minimum_fluent_orthogonal_quality']<.05 and state['interior_improvement_passes']<2:
-            improve_interior()
-        if state['minimum_fluent_orthogonal_quality'] < .05:
-            progress('四面体正交质量不足，正在转换多面体并重新检查边界')
-            session.settings.mesh.polyhedra.convert_domain()
-            state['polyhedral_conversion_performed'] = True
-            state['polyhedral_conversion_type'] = 'whole_domain'
-            session.settings.mesh.check()
-            session.settings.mesh.quality()
-        state['minimum_fluent_orthogonal_quality'] = quality_from_transcript(directory/'fluent.trn')
-        while state['minimum_fluent_orthogonal_quality']<.05 and state['interior_improvement_passes']<6:
-            improve_interior()
-        require(state['minimum_fluent_orthogonal_quality']>=.05,'Fluent 最小正交质量低于 0.05；已停止求解，请调整网格。')
+        state.update(condition_mesh(session,directory,progress))
         setup = session.settings.setup
         setup.general.solver.type = 'pressure-based'
         setup.general.solver.time = 'steady'
@@ -167,30 +142,38 @@ def run(payload, directory):
         session.settings.solution.initialization.hybrid_initialize()
         state['fluent_executed'] = True
         state['fluent_version'] = str(session.get_fluent_version())
-        previous,consecutive,end = None,0,0
+        previous,end = None,0
+        residual_history = []
         while end<config['iterations']:
-            requested = min(25,config['iterations']-end)
+            requested = min(BLOCK_SIZE,config['iterations']-end)
             progress(f'正在计算冷流：{end} / {config["iterations"]} 步')
             session.settings.solution.run_calculation.iterate(iter_count=requested)
             session.settings.file.write_case_data(file_name='final.cas.h5')
             actual = saved_iteration(directory/'final.dat.h5')
             require(actual==end+requested,'Fluent 实际步数与请求不符，已停止。')
-            residuals = parse_residuals((directory/'fluent.trn').read_text(encoding='utf-8',errors='replace'),end,actual)
+            rows = parse_residual_history((directory/'fluent.trn').read_text(encoding='utf-8',errors='replace'),end,actual)
+            residual_history.extend(dict(iteration=i,**rows[i]) for i in sorted(rows))
             point = block_reports(session,settings,previous)
-            point.update(iteration=actual,residuals=residuals)
-            point['criteria_met'] = passes(point,criteria)
+            point.update(iteration=actual,residuals=rows[actual],block_steps=requested,
+                block_maximum_residuals={name:max(row[name] for row in rows.values()) for name in EQUATIONS})
+            point['criteria_met'] = all(item['passed'] for item in checks(point))
             state['history'].append(point)
+            state['convergence_assessment'] = assessment(state['history'])
+            state['numerical_criteria_met'] = state['convergence_assessment']['numerical_criteria_met']
+            state['iterations_completed'] = actual
             save(directory/'partial.json',state)
-            consecutive = consecutive+1 if point['criteria_met'] else 0
             previous,end = point,actual
             tracker.capture(session)
-            if end>=100 and consecutive>=2:
-                state['numerical_criteria_met'] = True
+            if state['numerical_criteria_met']:
                 break
         state['status'] = 'numerical_criteria_met' if state['numerical_criteria_met'] else 'iteration_budget_reached'
         state['iterations_completed'] = end
         verify_physics(snapshot(session),settings,laminar=True)
         state['saved_data_crosscheck'] = verify_saved_fluxes(directory,state['history'][-1])
+        with (directory/'residuals.csv').open('w',encoding='utf-8',newline='') as stream:
+            writer = csv.DictWriter(stream,fieldnames=['iteration',*EQUATIONS])
+            writer.writeheader()
+            writer.writerows(residual_history)
         with (directory/'history.csv').open('w',encoding='utf-8',newline='') as stream:
             names = ['iteration',*EQUATIONS,'relative_mass_imbalance','h2_relative_convective_imbalance','relative_pressure_drop_change']
             writer = csv.DictWriter(stream,fieldnames=names)
@@ -198,14 +181,14 @@ def run(payload, directory):
             for point in state['history']:
                 writer.writerow({key:point[key] for key in names if key not in EQUATIONS}|point['residuals'])
     finally:
-        tracker.capture(session)
-        if session is not None:
-            try:
+        try:
+            tracker.capture(session)
+            if session is not None:
                 session.settings.file.stop_transcript()
-            finally:
                 session.exit(timeout=10,wait=10)
-        cleanup = cleanup_records(list(tracker.owned.values()))
-        save(directory/'cleanup.json',cleanup)
+        finally:
+            cleanup = cleanup_records(list(tracker.owned.values()))
+            save(directory/'cleanup.json',cleanup)
     require(cleanup['all_tracked_processes_exited'],'本次 Fluent 进程退出尚未核实。')
     state['cleanup'] = cleanup
     return state
