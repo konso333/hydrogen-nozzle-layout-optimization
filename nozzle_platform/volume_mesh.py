@@ -18,6 +18,21 @@ def require(condition, message):
         raise ValueError(message)
 
 
+def nozzle_metal_end_zmax(domain):
+    """Exclude the enclosure walls reaching the outlet from the metal end."""
+    config=domain['config']
+    outlet=config['outlet_z_mm']
+    end=max([config['chamber_start_z_mm']]+[face['bounds_mm'][5]
+        for face in domain['faces'] if face['role']=='wall'
+        and face['bounds_mm'][5]<outlet-.001])
+    return end
+
+
+def passage_refinement_zmax(domain):
+    """Cover protruding nozzle metal with a fixed physical refinement extent."""
+    return min(nozzle_metal_end_zmax(domain)+2.,domain['config']['outlet_z_mm'])
+
+
 def face_topology(points, cells, boundaries):
     """Reject invalid topology; orient legacy file normals toward cell c0."""
     require(points.ndim == 2 and points.shape[1] == 3 and np.isfinite(points).all(), "网格坐标无效。")
@@ -125,8 +140,9 @@ def generate(gmsh, job, directory):
         gmsh.model.addPhysicalGroup(2,mapping['physical_surfaces'][role],i,role)
     gmsh.model.addPhysicalGroup(3,[shapes[0][1]],1,'fluid')
     for option,value in {'Mesh.MeshSizeMin':config['min_size_mm'],'Mesh.MeshSizeMax':config['max_size_mm'],
+            'Mesh.MeshSizeFactor':config.get('size_factor',1.),
             'Mesh.MeshSizeFromCurvature':config.get('curvature_samples',20),'Mesh.MeshSizeExtendFromBoundary':0,'Mesh.ElementOrder':1,
-            'Mesh.Algorithm3D':10 if config.get('algorithm','delaunay')=='hxt' else 1,'Mesh.Optimize':1,'Mesh.OptimizeNetgen':1}.items():
+            'Mesh.Algorithm3D':10 if config.get('algorithm','delaunay')=='hxt' else 1,'Mesh.Optimize':1,'Mesh.OptimizeNetgen':0}.items():
         gmsh.option.setNumber(option,value)
     distance = gmsh.model.mesh.field.add('Distance')
     gmsh.model.mesh.field.setNumbers(distance,'FacesList',mapping['physical_surfaces']['fuel_inlet']+mapping['physical_surfaces']['oxidizer_inlet'])
@@ -138,11 +154,12 @@ def generate(gmsh, job, directory):
     # The distant chamber may be coarse, but inlet-only refinement does not
     # resolve the narrow passages upstream of the chamber. Cap the full length.
     radius = domain['config']['passage_radius_mm']+.5
+    passage_end=passage_refinement_zmax(domain)
     for x,y in domain['coordinates_mm']:
         box = gmsh.model.mesh.field.add('Box')
         for key,value in {'VIn':config.get('passage_size_mm',.5),'VOut':config['max_size_mm'],
                 'XMin':x-radius,'XMax':x+radius,'YMin':y-radius,'YMax':y+radius,
-                'ZMin':domain['config']['upstream_z_mm']-1,'ZMax':domain['config']['chamber_start_z_mm']+2,
+                'ZMin':domain['config']['upstream_z_mm']-1,'ZMax':passage_end,
                 'Thickness':2}.items():
             gmsh.model.mesh.field.setNumber(box,key,value)
         fields.append(box)
@@ -151,11 +168,13 @@ def generate(gmsh, job, directory):
     gmsh.model.mesh.field.setAsBackgroundMesh(background)
     progress('正在生成一阶四面体体网格并优化单元')
     gmsh.model.mesh.generate(3)
+    # Run Netgen exactly once; enabling the automatic pass as well duplicated
+    # the expensive optimisation and consumed the bounded mesh time budget.
     gmsh.model.mesh.optimize('Netgen')
     progress('正在检查体单元连通性、边界、体积和导出格式')
     types,tags,groups = gmsh.model.mesh.getElements(3)
     require(len(types)==1 and types[0]==4, "仅支持一阶四面体体网格。")
-    require(len(tags[0])<=1500000, "体网格超过 150 万单元预算，请调粗网格或减少喷嘴。")
+    require(len(tags[0])<=config.get('cell_budget',1500000), "体网格超过设定的单元预算，请提高预算、调整网格或减少喷嘴。")
     node_tags,values,_ = gmsh.model.mesh.getNodes()
     order = np.argsort(node_tags)
     node_tags, points_mm = node_tags[order],np.asarray(values).reshape(-1,3)[order]
@@ -180,17 +199,20 @@ def generate(gmsh, job, directory):
         quality_percentiles=np.percentile(quality,[1,5,50,95]).tolist(),gmsh_version=gmsh.__version__,
         curvature_samples=config.get('curvature_samples',20),algorithm=config.get('algorithm','delaunay'),
         passage_size_mm=config.get('passage_size_mm',.5),
+        size_factor=config.get('size_factor',1.),
+        passage_refinement_zmax_mm=passage_end,
         units='m',bounds_m=[(points_mm.min(axis=0)*.001).tolist(),(points_mm.max(axis=0)*.001).tolist()],
         volume_mesh_generated=True,fluent_executed=False,scientific_eligible=False,
-        boundary_layers='none',fluent_orthogonal_quality=None)
+        boundary_layers='none',mesh_method='tetra',cell_type='tetrahedral',fluent_orthogonal_quality=None)
     np.savez_compressed(directory/'mesh_arrays.npz',points_m=points_mm*.001,tetra=cells,**boundaries)
     gmsh.write(str(directory/'flow.gmsh.msh'))
     # A genuine section of the tetrahedra for the browser, not the CAD skin.
-    selected = np.flatnonzero((points_mm[cells][:,:,1].min(axis=1)<=0)&(points_mm[cells][:,:,1].max(axis=1)>=0))
+    plane_y=float((points_mm[:,1].min()+points_mm[:,1].max())/2)
+    selected = np.flatnonzero((points_mm[cells][:,:,1].min(axis=1)<=plane_y)&(points_mm[cells][:,:,1].max(axis=1)>=plane_y))
     if len(selected)>20000:
         selected = selected[np.linspace(0,len(selected)-1,20000,dtype=int)]
     skin = cells[selected][:,np.array([[1,2,3],[0,3,2],[0,1,3],[0,2,1]])].reshape(-1,3)
     used,inverse = np.unique(skin,return_inverse=True)
     report['preview'] = {'vertices':points_mm[used].round(6).tolist(),'triangles':inverse.reshape(-1,3).tolist(),
-        'section':'tetrahedra intersecting Y=0; up to 20000 cells','sampled':len(selected)==20000}
+        'section':f'tetrahedra intersecting Y={plane_y:g} mm; up to 20000 cells','sampled':len(selected)==20000}
     return report

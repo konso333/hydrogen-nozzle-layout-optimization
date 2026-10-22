@@ -37,7 +37,7 @@ class PlatformServer(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "NozzlePlatform/0.4"
+    server_version = "NozzlePlatform/0.5"
 
     def log_message(self, fmt, *args):
         print(fmt % args, flush=True)
@@ -68,7 +68,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.json({"error": "仅接受本机访问。"}, 403)
         path = urlsplit(self.path).path
         if path == "/api/bootstrap":
-            return self.json({"milestone": 4, "version": "0.4.0", "models": self.server.models.catalog(),
+            return self.json({"milestone": 5, "version": "0.5.0", "models": self.server.models.catalog(),
                               "simulation_available": self.server.workflows.capability()['fluent_available'],
                               "workflow":self.server.workflows.capability(), "power_basis": "fuel_input"})
         if path.startswith('/api/jobs/'):
@@ -85,7 +85,8 @@ class Handler(BaseHTTPRequestHandler):
             filename = file.name if file.name.isascii() else 'nozzle_result.zip'
             return self.send_data(file.read_bytes(), "application/zip", attachment=filename)
         files = {"/": "index.html", "/app.js": "app.js", "/app.css": "app.css", "/viewer.js": "viewer.js",
-                 "/domain.js":"domain.js","/domain.css":"domain.css",'/simulation.js':'simulation.js','/simulation.css':'simulation.css'}
+                 "/domain.js":"domain.js","/domain.css":"domain.css",'/simulation.js':'simulation.js','/simulation.css':'simulation.css',
+                 '/study.js':'study.js'}
         if path not in files:
             return self.json({"error": "页面不存在。"}, 404)
         file = STATIC / files[path]
@@ -123,6 +124,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(self.server.workflows.start_mesh(data),202)
             if path == '/api/coldflow':
                 return self.json(self.server.workflows.start_flow(data),202)
+            if path == '/api/mesh-study':
+                return self.json(self.server.workflows.start_study(data),202)
             if path == '/api/stop-job':
                 return self.json(self.server.workflows.stop(data.get('job_id')))
             if path == '/api/export-result':

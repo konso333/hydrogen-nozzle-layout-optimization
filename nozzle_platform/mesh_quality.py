@@ -44,7 +44,7 @@ def acceptable(quality):
             and quality['maximum_aspect_ratio'] <= MAXIMUM_ASPECT_RATIO)
 
 
-def condition_mesh(session, directory, progress):
+def condition_mesh(session, directory, progress, *, preserve_layers=False, allow_conditioning=True):
     history = []
     best = None
     converted = False
@@ -67,14 +67,20 @@ def condition_mesh(session, directory, progress):
         selected = (quality['maximum_aspect_ratio'] <= MAXIMUM_ASPECT_RATIO
                     and (best is None or quality['minimum_orthogonal_quality'] > best['minimum_orthogonal_quality']))
         if selected:
-            session.settings.file.write_case(file_name='best_mesh.cas.h5')
+            if allow_conditioning:session.settings.file.write_case(file_name='best_mesh.cas.h5')
             best = dict(quality)
-        history.append(dict(quality, retained_as_best=selected))
+        history.append(dict(quality, retained_as_best=selected and allow_conditioning))
         save(directory / 'quality_history.json', dict(limits=limits, stages=history, best=best))
         return quality
 
-    initial = measure('imported_tetra')
+    initial = measure('imported_mixed' if preserve_layers else 'imported_tetra')
     current = initial
+    if (preserve_layers or not allow_conditioning) and not acceptable(initial):
+        save(directory/'mesh_quality.json',dict(mesh_quality_accepted=False,
+            minimum_fluent_orthogonal_quality=initial['minimum_orthogonal_quality'],
+            maximum_fluent_aspect_ratio=initial['maximum_aspect_ratio'],mesh_quality_limits=limits,
+            mesh_quality_history=history))
+        raise ValueError('壁面层网格导入后未通过质量门限；请重新生成网格。')
     if not acceptable(current):
         progress('正在直接转换多面体，联合检查正交质量与长宽比')
         session.settings.mesh.polyhedra.convert_domain()
@@ -103,8 +109,8 @@ def condition_mesh(session, directory, progress):
                        improvement_passes=saved_best['improvement_passes'])
         best = saved_best
     chosen = best or current
-    result = dict(imported_tetra_minimum_orthogonal_quality=initial['minimum_orthogonal_quality'],
-                  imported_tetra_maximum_aspect_ratio=initial['maximum_aspect_ratio'],
+    result = dict(imported_mesh_minimum_orthogonal_quality=initial['minimum_orthogonal_quality'],
+                  imported_mesh_maximum_aspect_ratio=initial['maximum_aspect_ratio'],
                   minimum_fluent_orthogonal_quality=current['minimum_orthogonal_quality'],
                   maximum_fluent_aspect_ratio=current['maximum_aspect_ratio'],
                   polyhedral_conversion_performed=chosen['polyhedral_conversion_performed'],
@@ -112,6 +118,9 @@ def condition_mesh(session, directory, progress):
                   interior_improvement_passes=chosen['improvement_passes'], attempted_improvement_passes=passes,
                   best_mesh_restored=restored, mesh_quality_limits=limits, mesh_quality_history=history,
                   mesh_quality_accepted=acceptable(current))
+    if not preserve_layers:
+        result.update(imported_tetra_minimum_orthogonal_quality=initial['minimum_orthogonal_quality'],
+            imported_tetra_maximum_aspect_ratio=initial['maximum_aspect_ratio'])
     save(directory / 'mesh_quality.json', result)
     if not result['mesh_quality_accepted']:
         raise ValueError(f'网格质量未通过：最小正交质量 {current["minimum_orthogonal_quality"]:.5g}（需 ≥ 0.1），'

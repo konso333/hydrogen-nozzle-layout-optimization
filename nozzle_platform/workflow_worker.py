@@ -17,7 +17,10 @@ def main(directory):
             if payload.get('gmsh_path'):
                 sys.path.insert(0,payload['gmsh_path'])
             import gmsh
-            from nozzle_platform.volume_mesh import generate
+            if payload['config'].get('mesh_method')=='layered-polyhex':
+                from nozzle_platform.layered_mesh import generate
+            else:
+                from nozzle_platform.volume_mesh import generate
             gmsh.initialize([],readConfigFiles=False,interruptible=False)
             gmsh.logger.start()
             try:
@@ -32,9 +35,12 @@ def main(directory):
             result = run(payload,directory)
         response = {'ok':True,'result':result}
     except BaseException as error:
+        from nozzle_platform.solver_device import GPUCompatibilityError
         traceback.print_exc()
         native_logs = '\n'.join(path.read_text(encoding='utf-8',errors='replace') for path in directory.glob('*.trn'))
-        if payload['kind']=='flow' and 'Unexpected license problem' in native_logs:
+        if isinstance(error,GPUCompatibilityError):
+            response={'ok':False,'error_code':'gpu_incompatible','error':str(error)}
+        elif 'Unexpected license problem' in native_logs:
             response = {'ok':False,'error_code':'fluent_license_unavailable',
                 'error':'Fluent 返回许可证错误，尚未开始冷流求解。请先确认本机 Fluent 能正常启动，或在本地配置中填写已确认的学校许可服务器，再重试。体网格仍可查看和导出。'}
         else:

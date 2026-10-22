@@ -20,11 +20,13 @@ def main():
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--archive", type=Path)
     parser.add_argument("--gmsh-path", type=Path)
+    parser.add_argument("--output-dir", type=Path, help="本机模型与仿真结果目录，可放到空间充足的磁盘")
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args()
     workspace = ROOT.parent.parent
     config_file = ROOT / ".local" / "platform.json"
     config = json.loads(config_file.read_text(encoding="utf-8-sig")) if config_file.exists() else {}
+    output = Path(args.output_dir or config.get("output_dir") or ROOT / "outputs" / "platform").expanduser().absolute()
     archive = args.archive or config.get("archive")
     if archive is None:
         candidate = workspace / "模型" / "钝体改型与仿真工况10.18.zip"
@@ -35,7 +37,7 @@ def main():
         if (candidate / "gmsh.py").is_file():
             gmsh_path = candidate
     try:
-        server = PlatformServer(("127.0.0.1", args.port), ROOT / "outputs" / "platform", archive=archive, gmsh_path=gmsh_path,fluent=config.get('fluent'))
+        server = PlatformServer(("127.0.0.1", args.port), output, archive=archive, gmsh_path=gmsh_path,fluent=config.get('fluent'))
     except OSError as exc:
         if getattr(exc, "winerror", None) == 10048 or exc.errno in {48, 98, 10048}:
             existing_url = f"http://127.0.0.1:{args.port}"
@@ -51,7 +53,7 @@ def main():
                 raise SystemExit(f"Port {args.port} is in use. Close the other application or use --port 8766.") from exc
         raise
     url = f"http://127.0.0.1:{server.server_port}"
-    print(f"Nozzle platform: {url}\nClose with Ctrl+C. Milestone 4: mesh quality and sustained cold-flow checks.", flush=True)
+    print(f"Nozzle platform: {url}\nOutput directory: {output}\nClose with Ctrl+C.", flush=True)
     if not args.no_browser:
         threading.Timer(.7, lambda: webbrowser.open(url)).start()
     try:

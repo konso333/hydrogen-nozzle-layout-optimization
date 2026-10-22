@@ -154,9 +154,12 @@ def test_browser_page_is_local_and_has_no_remote_dependency(server):
     assert b"https://" not in raw
     assert "frame-ancestors 'none'" in headers["Content-Security-Policy"]
     bootstrap=json.loads(call(server,"GET","/api/bootstrap")[1])
-    assert bootstrap["milestone"]==4
+    assert bootstrap["milestone"]==5
     assert bootstrap["simulation_available"]==bootstrap['workflow']['fluent_available']
     assert call(server,"GET","/../../models/source.step")[0]==404
+    import re
+    for asset in re.findall(r'(?:src|href)="(/[^"#]+\.(?:js|css))"',raw.decode()):
+        assert call(server,"GET",asset)[0]==200,asset
 
 
 def test_foreign_origin_and_host_cannot_operate_local_cad(server):
