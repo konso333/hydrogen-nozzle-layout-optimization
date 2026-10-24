@@ -2,7 +2,7 @@
 import h5py
 import numpy as np
 import pytest
-from nozzle_platform.nozzle_gpu_probe import read_saved,compare_compositions,diagnose_species,saved_solver_controls
+from nozzle_platform.nozzle_gpu_probe import read_saved,compare_compositions,diagnose_species,saved_solver_controls,iteration_plan
 from nozzle_platform.transport_audit import evaluate
 
 
@@ -132,3 +132,17 @@ def test_partial_or_invalid_species_linear_controls_reject(pair,tail):
     with h5py.File(case,'r+') as f:
         f['settings/Rampant Variables']=[('(species/scheme (1 1 1)) (gpuapp/solver/absolute-tolerance-double 1e-20) '+tail).encode()]
     with pytest.raises(ValueError):saved_solver_controls(case)
+
+
+@pytest.mark.parametrize('capture,expected',[(False,[1,24,25]),(True,[1,2,3,24,25])])
+def test_extra_startup_checkpoints_do_not_increase_gpu_iteration_budget(capture,expected):
+    plan=iteration_plan(capture)
+    assert np.cumsum([n for n,_ in plan]).tolist()==expected
+    assert len({name for _,name in plan})==len(plan)
+
+
+def test_saved_conservative_species_relaxation_is_explicit(pair):
+    case,_=pair
+    with h5py.File(case,'r+') as f:
+        f['settings/Rampant Variables']=[b'(species/scheme (1 1 1)) (gpuapp/solver/absolute-tolerance-double 1e-20) (species/relax (0.01 0.01 0.01))']
+    assert saved_solver_controls(case)['species_relax']==[.01]*3

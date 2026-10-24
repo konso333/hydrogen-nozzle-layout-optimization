@@ -22,7 +22,7 @@ def saved_solver_controls(case_path):
     if len(orders)!=3 or any(x not in [0,1] for x in orders) or not np.isfinite(absolute) or absolute<=0:
         raise ValueError('Invalid saved solver controls')
     result=dict(species_scheme=orders,linear_absolute_tolerance_double=absolute)
-    for key in ['amg-alpha','iter-tolerance','max-iter']:
+    for key in ['amg-alpha','iter-tolerance','max-iter','relax']:
         values=re.findall(r'\(species/'+key+r'\s+\(([^()]*)\)\)',text)
         if len(values)>1:raise ValueError('Ambiguous saved species linear controls')
         if values:
@@ -31,6 +31,11 @@ def saved_solver_controls(case_path):
                 raise ValueError('Invalid saved species linear controls')
             result['species_'+key.replace('-','_')]=array
     return result
+
+
+def iteration_plan(capture_startup=False):
+    if type(capture_startup) is not bool:raise ValueError('Startup capture must be explicit boolean')
+    return [(1,'first'),(1,'second'),(1,'third'),(21,'penultimate'),(1,'final')] if capture_startup else [(1,'first'),(23,'penultimate'),(1,'final')]
 
 
 def _field(group, name, first, last, width=None):

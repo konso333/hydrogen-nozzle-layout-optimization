@@ -29,11 +29,13 @@ def audit(folder):
     controls=saved_solver_controls(folder/'final.cas.h5')
     assert controls['species_scheme']==([0]*3 if spec.get('species_order','second')=='first' else [1]*3)
     assert controls['linear_absolute_tolerance_double']==spec.get('linear_absolute_tolerance_double',1e-16)
+    assert controls['species_relax']==[spec.get('species_relaxation',1.)]*3
     if spec.get('strict_species_linear'):
         for k,v in [('species_amg_alpha',1e-6),('species_iter_tolerance',1e-6),('species_max_iter',100.)]:assert controls[k]==[v]*3
     baseline=saved_iteration(folder/'input.dat.h5')
     stages={}
-    for name,offset in [('first',1),('penultimate',24),('final',25)]:
+    checkpoints=[('first',1)]+([('second',2),('third',3)] if spec.get('capture_startup') else [])+[('penultimate',24),('final',25)]
+    for name,offset in checkpoints:
         assert saved_iteration(folder/(name+'.dat.h5'))==baseline+offset
         stages[name]=read_saved(folder/'final.cas.h5',folder/(name+'.dat.h5'))
         assert stages[name]['summary']['cells']==851803
@@ -45,14 +47,19 @@ def audit(folder):
     history=parse_residual_history(text,baseline,baseline+25)
     assert len(history)==25
     verdict=all(x['current_composition_matches_ideal'] or x['previous_composition_matches_ideal'] for x in [first,final])
+    startup_checks={}
+    if spec.get('capture_startup'):
+        for name,previous in [('second','first'),('third','second')]:
+            check=compare_compositions(stages[name],stages[previous],material);startup_checks[name]=check
+            verdict=verdict and (check['current_composition_matches_ideal'] or check['previous_composition_matches_ideal'])
     return dict(directory=str(folder),status='saved_probe_audited',saved_solver_controls=controls,restart=spec['restart'],initial_iteration=baseline,
         saved_iteration=baseline+25,complete_added_residuals=len(history),final_residuals=history[baseline+25],
-        nonuniform_original_viscosity_evidence_verified=verdict,first_step_viscosity=first,last_step_viscosity=final,
+        nonuniform_original_viscosity_evidence_verified=verdict,first_step_viscosity=first,last_step_viscosity=final,startup_viscosity_checks=startup_checks,
         saved_fields={k:v['summary'] for k,v in stages.items()},conductivity_independently_verified=False,
         numerical_criteria_met=False,formal_physics_validated=False,scientific_eligible=False,grid_independence_verified=False,
         source_files_unchanged=True,mesh_unchanged=True,CPU_fallback=False,
         files_sha256={n:sha256(folder/n) for n in ['spec.json','controller_source.py','command.json','ideal_transport.py','gpu_numba_runtime_fix.py',
-            'input.cas.h5','input.dat.h5','final.cas.h5','first.dat.h5','penultimate.dat.h5','final.dat.h5','journal.trn','cleanup.json','controller_outcome.json']})
+            'input.cas.h5','input.dat.h5','final.cas.h5','first.dat.h5','penultimate.dat.h5','final.dat.h5','journal.trn','cleanup.json','controller_outcome.json']+(['second.dat.h5','third.dat.h5'] if spec.get('capture_startup') else [])})
 
 
 def audit_rejected(folder):
@@ -71,13 +78,15 @@ def audit_rejected(folder):
     assert mesh_fingerprint(folder/'input.cas.h5')==mesh_fingerprint(folder/'final.cas.h5')==spec['mesh_fingerprint']
     material=components(json.loads((folder/'reference.json').read_text(encoding='utf-8')))
     initial=read_saved(folder/'input.cas.h5',folder/'input.dat.h5')
-    stages={n:diagnose_species(folder/'final.cas.h5',folder/(n+'.dat.h5')) for n in ['first','penultimate','final']}
+    names=['first']+(['second','third'] if spec.get('capture_startup') else [])+['penultimate','final']
+    stages={n:diagnose_species(folder/'final.cas.h5',folder/(n+'.dat.h5')) for n in names}
     controls=saved_solver_controls(folder/'final.cas.h5')
     assert controls['species_scheme']==([0]*3 if spec.get('species_order','second')=='first' else [1]*3)
     assert controls['linear_absolute_tolerance_double']==spec.get('linear_absolute_tolerance_double',1e-16)
+    assert controls['species_relax']==[spec.get('species_relaxation',1.)]*3
     if spec.get('strict_species_linear'):
         for k,v in [('species_amg_alpha',1e-6),('species_iter_tolerance',1e-6),('species_max_iter',100.)]:assert controls[k]==[v]*3
-    assert stages['final']['cells_above_sum_limit']>0,'This rejection path is only for actual cell species closure violations'
+    assert any(s['cells_above_sum_limit']>0 for s in stages.values()),'This rejection path is only for actual cell species closure violations'
     count=initial['summary']['cells']
     with h5py.File(folder/'first.dat.h5') as f:mu_first=_field(f['results/1/phase-1/cells'],'SV_MU_LAM',1,count)
     first_check=differences(evaluate(initial['y'],material)['ideal_viscosity'],mu_first)
@@ -95,6 +104,8 @@ def audit_rejected(folder):
     start,end=saved_iteration(folder/'input.dat.h5'),saved_iteration(folder/'final.dat.h5')
     assert end==start+25
     assert saved_iteration(folder/'first.dat.h5')==start+1 and saved_iteration(folder/'penultimate.dat.h5')==start+24
+    if spec.get('capture_startup'):
+        for name,offset in [('second',2),('third',3)]:assert saved_iteration(folder/(name+'.dat.h5'))==start+offset
     text=(folder/'journal.trn').read_text(encoding='utf-8',errors='replace')
     rows=parse_residual_history(text,start,end)
     assert all(s in text for s in ['Preparing GPU solver','NVIDIA','GPU_NUMBA_ABI_FIX','udf_ideal_mu','udf_ideal_k'])
@@ -104,7 +115,7 @@ def audit_rejected(folder):
         mesh_unchanged=True,cleanup_verified=True,formal_physics_validated=False,numerical_criteria_met=False,
         scientific_eligible=False,grid_independence_verified=False,conductivity_independently_verified=False,CPU_fallback=False,
         files_sha256={n:sha256(folder/n) for n in ['spec.json','controller_source.py','input.cas.h5','input.dat.h5','first.dat.h5',
-            'penultimate.dat.h5','final.dat.h5','final.cas.h5','journal.trn','result.json','cleanup.json','controller_outcome.json']})
+            'penultimate.dat.h5','final.dat.h5','final.cas.h5','journal.trn','result.json','cleanup.json','controller_outcome.json']+(['second.dat.h5','third.dat.h5'] if spec.get('capture_startup') else [])})
 
 
 def main():

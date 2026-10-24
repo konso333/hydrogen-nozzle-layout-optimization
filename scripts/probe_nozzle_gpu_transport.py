@@ -2,7 +2,8 @@
 
 Independent of platform selections. Uses an audited GPU case and original CPU
 composition checkpoint, or restarts its own output without manually rehooking.
-Every run adds 25 iterations, saves 1/24/25, and keeps all formal flags false.
+Every run adds 25 iterations, saves 1/24/25 (optionally also 2/3), and keeps
+all formal flags false.
 """
 import argparse,json,os,shutil,subprocess,sys,time
 from pathlib import Path
@@ -14,7 +15,7 @@ if '--worker' in sys.argv:
 from nozzle_platform.workflows import save,sha256,IMPLEMENTATION
 from nozzle_platform.transport_audit import components,render_gpu_udf
 from nozzle_platform.gpu_numba_compat import source as compatibility_source
-from nozzle_platform.nozzle_gpu_probe import read_saved,compare_compositions,saved_solver_controls
+from nozzle_platform.nozzle_gpu_probe import read_saved,compare_compositions,saved_solver_controls,iteration_plan
 from nozzle_platform.layered_mesh import create_native_mapping,cleanup_native_mapping
 from coldflow_trial.solver import mesh_fingerprint,saved_iteration,parse_residual_history
 from coldflow_trial.processes import OwnedProcesses,cleanup_records
@@ -48,7 +49,11 @@ def worker(folder):
         if spec['strict_species_linear'] and not spec['restart']:
             for key,values in [('amg-alpha','1e-6 1e-6 1e-6'),('iter-tolerance','1e-6 1e-6 1e-6'),('max-iter','100 100 100')]:
                 journal+="(rpsetvar 'species/"+key+" '("+values+"))\n"
-        journal+='/solve/iterate 1\n/file/write-data first.dat.h5\n/solve/iterate 23\n/file/write-data penultimate.dat.h5\n/solve/iterate 1\n/file/write-data final.dat.h5\n/file/write-case final.cas.h5\n'
+        relaxation=spec['species_relaxation']
+        journal+="(rpsetvar 'species/relax '("+' '.join([repr(relaxation)]*3)+"))\n"
+        for count,name in iteration_plan(spec['capture_startup']):
+            journal+='/solve/iterate '+str(count)+'\n/file/write-data '+name+'.dat.h5\n'
+        journal+='/file/write-case final.cas.h5\n'
         journal+='(with-output-to-file "journal.done" (lambda () (display "done")))\n'
         (folder/'probe.jou').write_text(journal,encoding='ascii')
         native=create_native_mapping(folder)
@@ -73,6 +78,7 @@ def worker(folder):
         assert metadata['species/scheme']==([0]*3 if spec['species_order']=='first' else [1]*3),'saved species scheme changed'
         result['saved_solver_controls']=saved_solver_controls(folder/'final.cas.h5')
         assert result['saved_solver_controls']['linear_absolute_tolerance_double']==tolerance
+        assert result['saved_solver_controls']['species_relax']==[relaxation]*3
         if spec['strict_species_linear']:
             for key,value in [('species_amg_alpha',1e-6),('species_iter_tolerance',1e-6),('species_max_iter',100.)]:
                 assert result['saved_solver_controls'][key]==[value]*3,'saved linear controls changed'
@@ -80,6 +86,12 @@ def worker(folder):
         previous=read_saved(folder/'final.cas.h5',folder/'penultimate.dat.h5')
         final=read_saved(folder/'final.cas.h5',folder/'final.dat.h5')
         result['saved_fields']=final['summary']
+        if spec['capture_startup']:
+            result['startup_checkpoint_fields']={}
+            for name,offset in [('first',1),('second',2),('third',3)]:
+                stored=read_saved(folder/'final.cas.h5',folder/(name+'.dat.h5'))
+                assert saved_iteration(folder/(name+'.dat.h5'))==first+offset
+                result['startup_checkpoint_fields'][name]=stored['summary']
         result['viscosity_checks']=compare_compositions(final,previous,material)
         result['saved_iteration']=saved_iteration(folder/'final.dat.h5')
         assert final['summary']['cells']==851803
@@ -91,7 +103,7 @@ def worker(folder):
         assert 'Preparing GPU solver' in text and 'NVIDIA' in text and 'GPU_NUMBA_ABI_FIX' in text
         assert 'udf_ideal_mu' in text and 'udf_ideal_k' in text
         result['native_gpu_hooks_seen']=True
-        result['files_sha256']={n:sha256(folder/n) for n in ['final.cas.h5','final.dat.h5','penultimate.dat.h5','first.dat.h5','ideal_transport.py','gpu_numba_runtime_fix.py','journal.trn']}
+        result['files_sha256']={n:sha256(folder/n) for n in ['final.cas.h5','final.dat.h5','penultimate.dat.h5','first.dat.h5','ideal_transport.py','gpu_numba_runtime_fix.py','journal.trn']+(['second.dat.h5','third.dat.h5'] if spec['capture_startup'] else [])}
         result['status']='completed_pending_independent_property_audit'
     except BaseException as error:
         result.update(status='failed',error=str(error) or type(error).__name__);raise
@@ -110,6 +122,8 @@ def main():
     parser.add_argument('--species-order',choices=['first','second'],default='second',help='Explicit first-order diagnostic, or unchanged second-order original discretization')
     parser.add_argument('--linear-absolute-tolerance',type=float,choices=[1e-16,1e-20],default=1e-16,help='Explicit stricter GPU linear-solver experiment; never changes acceptance limits')
     parser.add_argument('--strict-species-linear',action='store_true',help='Explicit diagnostic: species relative linear tolerances 1e-6 and maximum inner iterations 100')
+    parser.add_argument('--species-relaxation',type=float,choices=[.01,.1,1.],default=1.,help='Explicit conservative startup diagnostic; preserved original physics and acceptance limits')
+    parser.add_argument('--capture-startup',action='store_true',help='Also save and validate steps 2/3; total iterations remain 25')
     args=parser.parse_args();folder=args.output.resolve();cpu=args.cpu.resolve();gpu=args.gpu.resolve()
     if folder.exists():raise ValueError('Use a new output directory')
     assert psutil.virtual_memory().available>=4*2**30,'4 GiB available RAM required'
@@ -178,6 +192,7 @@ def main():
         species_order=args.species_order,momentum_and_energy_order='second-order-upwind',
         linear_absolute_tolerance_double=args.linear_absolute_tolerance,
         strict_species_linear=args.strict_species_linear,
+        species_relaxation=args.species_relaxation,capture_startup=args.capture_startup,
         initial_solution_transport_model='ideal-gas-mixing-law' if args.start_from=='cpu' else 'mass-weighted-mixing-law',
         initial_viscosity_comparison=None if args.restart else initial_mu_comparison)
     if args.restart:spec['restart_code_sha256']={n:sha256(previous/n) for n in ['ideal_transport.py','gpu_numba_runtime_fix.py']}
