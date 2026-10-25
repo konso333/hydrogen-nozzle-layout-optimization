@@ -33,8 +33,12 @@ def saved_solver_controls(case_path):
     return result
 
 
-def iteration_plan(capture_startup=False):
+def iteration_plan(capture_startup=False,session_steps=25):
     if type(capture_startup) is not bool:raise ValueError('Startup capture must be explicit boolean')
+    if type(session_steps) is not int or session_steps not in [25,100]:raise ValueError('Explicit 25- or 100-step session required')
+    if session_steps==100:
+        if not capture_startup:raise ValueError('Single-session comparison requires startup checkpoints')
+        return [(1,'first'),(1,'second'),(1,'third'),(21,'step_24'),(1,'step_25'),(24,'step_49'),(1,'step_50'),(24,'step_74'),(1,'step_75'),(24,'penultimate'),(1,'final')]
     return [(1,'first'),(1,'second'),(1,'third'),(21,'penultimate'),(1,'final')] if capture_startup else [(1,'first'),(23,'penultimate'),(1,'final')]
 
 

@@ -12,6 +12,7 @@ from nozzle_platform.design import DesignStore
 from nozzle_platform.domains import DomainStore
 from nozzle_platform.models import MAX_UPLOAD_BYTES, ModelStore
 from nozzle_platform.workflows import WorkflowStore
+from nozzle_platform.review_reports import ReviewStore
 
 
 STATIC = Path(__file__).with_name("static")
@@ -33,6 +34,7 @@ class PlatformServer(ThreadingHTTPServer):
         self.designs = DesignStore(Path(root) / "designs", self.models)
         self.domains = DomainStore(Path(root) / "domains", self.models, self.designs)
         self.workflows = WorkflowStore(Path(root) / "workflows", self.domains, fluent=fluent)
+        self.reviews = ReviewStore(Path(root) / 'verification_reports')
         super().__init__(address, Handler)
 
 
@@ -67,6 +69,19 @@ class Handler(BaseHTTPRequestHandler):
         if not self.trusted_host():
             return self.json({"error": "仅接受本机访问。"}, 403)
         path = urlsplit(self.path).path
+        if path=='/api/verification-reports':
+            return self.json({'reports':self.server.reviews.catalog()})
+        if path.startswith('/api/verification-reports/'):
+            try:return self.json(self.server.reviews.get(path.removeprefix('/api/verification-reports/')))
+            except (ValueError,OSError,KeyError,TypeError) as error:return self.json({'error':str(error)},404)
+        if path.startswith('/verification-files/'):
+            try:
+                parts=path.removeprefix('/verification-files/').split('/')
+                if len(parts)!=2:raise ValueError('报告文件路径无效。')
+                file=self.server.reviews.file(*parts)
+                types={'.png':'image/png','.csv':'text/csv; charset=utf-8','.json':'application/json; charset=utf-8','.txt':'text/plain; charset=utf-8','.zip':'application/zip'}
+                return self.send_data(file.read_bytes(),types[file.suffix],attachment=None if file.suffix=='.png' else file.name)
+            except (ValueError,OSError,KeyError,TypeError) as error:return self.json({'error':str(error)},404)
         if path == "/api/bootstrap":
             return self.json({"milestone": 5, "version": "0.5.0", "models": self.server.models.catalog(),
                               "simulation_available": self.server.workflows.capability()['fluent_available'],
@@ -86,7 +101,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_data(file.read_bytes(), "application/zip", attachment=filename)
         files = {"/": "index.html", "/app.js": "app.js", "/app.css": "app.css", "/viewer.js": "viewer.js",
                  "/domain.js":"domain.js","/domain.css":"domain.css",'/simulation.js':'simulation.js','/simulation.css':'simulation.css',
-                 '/study.js':'study.js'}
+                 '/study.js':'study.js','/validation.html':'validation.html','/validation.js':'validation.js','/validation.css':'validation.css'}
         if path not in files:
             return self.json({"error": "页面不存在。"}, 404)
         file = STATIC / files[path]

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>仿真验证报告 · Nozzle Lab</title><link rel="stylesheet" href="/validation.css"><script src="/validation.js" defer></script></head>
+<body>
+<header><a class="brand" href="/">✣ NOZZLE LAB<span>多喷嘴设计工作台</span></a><a class="back" href="/">← 返回阵列设计</a><span class="local">本机验证记录</span></header>
+<main>
+  <div class="heading"><div><p class="eyebrow">SIMULATION VERIFICATION</p><h1>这次计算，验证到了哪一步？</h1><p class="intro">查看程序实际保存的检查结果，分别判断数据、收敛和适用范围。</p></div><button id="refresh" type="button">刷新报告</button></div>
+  <div class="select-row"><label for="report-select">选择验证记录</label><select id="report-select"></select><a id="bundle" class="download" hidden>下载审核包 ↓</a></div>
+  <p id="notice" role="status" aria-live="polite">正在读取本机记录…</p>
+  <article id="report" hidden>
+    <div class="report-title"><div><h2 id="title"></h2><p id="summary"></p></div><span class="scope-tag">验证阶段 · 暂不用于方案优劣比较</span></div>
+    <section class="status-grid" id="statuses" aria-label="独立验证状态"></section>
+    <section class="panel"><h3>实际计算记录</h3><div class="metrics" id="metrics"></div><p id="method" class="muted"></p></section>
+    <section class="panel"><h3>还缺哪些证据</h3><ul id="missing"></ul><p class="muted">“未取得”与数值 0 分开显示；达到步数预算不会自动标记为收敛。</p></section>
+    <section class="panel"><h3>关键指标与变化</h3><div class="table-wrap"><table><thead id="table-head"></thead><tbody id="table-body"></tbody></table></div><p id="metric-scope" class="muted"></p></section>
+    <section class="panel" id="chart-panel" hidden><h3>保存数据的趋势</h3><div id="charts"></div></section>
+    <section class="panel"><h3>结论与下一步</h3><p id="conclusion"></p><p id="next"></p></section>
+    <details class="panel"><summary>原始报告与审核记录</summary><p class="muted">审核包包含报告文本、指标表、图和来源哈希。大型 case/data 保存在本机仿真结果目录。</p><div id="records" class="records"></div><button id="show-raw" type="button">查看原始报告摘录</button><pre id="raw" hidden></pre></details>
+  </article>
+  <footer>真实单喷嘴冷流验证 · 独立状态逐项展示 · 正式三档网格研究仍停止</footer>
+</main>
+</body></html>

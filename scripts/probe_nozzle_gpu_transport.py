@@ -2,8 +2,8 @@
 
 Independent of platform selections. Uses an audited GPU case and original CPU
 composition checkpoint, or restarts its own output without manually rehooking.
-Every run adds 25 iterations, saves 1/24/25 (optionally also 2/3), and keeps
-all formal flags false.
+Default runs add 25 steps. An explicit M17 comparison adds 100 steps in one
+session with paired checkpoints. All formal flags remain false.
 """
 import argparse,json,os,shutil,subprocess,sys,time
 from pathlib import Path
@@ -16,6 +16,7 @@ from nozzle_platform.workflows import save,sha256,IMPLEMENTATION
 from nozzle_platform.transport_audit import components,render_gpu_udf
 from nozzle_platform.gpu_numba_compat import source as compatibility_source
 from nozzle_platform.nozzle_gpu_probe import read_saved,compare_compositions,saved_solver_controls,iteration_plan
+from nozzle_platform.native_reports import pressure_commands,total_pressure
 from nozzle_platform.layered_mesh import create_native_mapping,cleanup_native_mapping
 from coldflow_trial.solver import mesh_fingerprint,saved_iteration,parse_residual_history
 from coldflow_trial.processes import OwnedProcesses,cleanup_records
@@ -51,9 +52,18 @@ def worker(folder):
                 journal+="(rpsetvar 'species/"+key+" '("+values+"))\n"
         relaxation=spec['species_relaxation']
         journal+="(rpsetvar 'species/relax '("+' '.join([repr(relaxation)]*3)+"))\n"
-        for count,name in iteration_plan(spec['capture_startup']):
+        steps=spec['added_iterations'];offset=0
+        plan=iteration_plan(spec['capture_startup'],steps)
+        for count,name in plan:
+            offset+=count
             journal+='/solve/iterate '+str(count)+'\n/file/write-data '+name+'.dat.h5\n'
         journal+='/file/write-case final.cas.h5\n'
+        if spec.get('capture_reports'):
+            # Read-only postprocessing follows ALL solver steps, so report
+            # interfaces cannot disturb the comparison trajectory.
+            for stage,name in [('input','input')]+[(n,'final' if n==steps else 'step_'+str(n)) for n in range(25,steps+1,25)]:
+                journal+='/file/read-data '+name+'.dat.h5\n'+pressure_commands(stage)
+            journal+='(display "BEGIN_SPECIES_MASS_FLOW_DIAGNOSTIC\\n")\n/report/species-mass-flow\n(display "END_SPECIES_MASS_FLOW_DIAGNOSTIC\\n")\n'
         journal+='(with-output-to-file "journal.done" (lambda () (display "done")))\n'
         (folder/'probe.jou').write_text(journal,encoding='ascii')
         native=create_native_mapping(folder)
@@ -64,7 +74,7 @@ def worker(folder):
             process=subprocess.Popen(command,cwd=native,stdin=subprocess.DEVNULL,stdout=log,stderr=log,creationflags=subprocess.CREATE_NO_WINDOW)
             while not (folder/'journal.done').exists():
                 tracker.capture()
-                if time.monotonic()-started>180:raise TimeoutError('Native GPU journal exceeded 180 seconds')
+                if time.monotonic()-started>spec['native_wall_limit_seconds']:raise TimeoutError('Native GPU journal exceeded its bounded time limit')
                 text=(folder/'journal.trn').read_text(encoding='utf-8',errors='replace') if (folder/'journal.trn').exists() else ''
                 if 'Unexpected license problem' in text:raise RuntimeError('Fluent license rejected')
                 if process.poll() is not None:raise RuntimeError('Fluent launcher exited before completion')
@@ -95,15 +105,25 @@ def worker(folder):
         result['viscosity_checks']=compare_compositions(final,previous,material)
         result['saved_iteration']=saved_iteration(folder/'final.dat.h5')
         assert final['summary']['cells']==851803
-        assert result['saved_iteration']==first+25
-        assert saved_iteration(folder/'penultimate.dat.h5')==first+24
-        history=parse_residual_history((folder/'journal.trn').read_text(encoding='utf-8',errors='replace'),first,first+25)
-        result['complete_residual_iterations']=len(history);result['final_residuals']=history[first+25]
+        assert result['saved_iteration']==first+steps
+        assert saved_iteration(folder/'penultimate.dat.h5')==first+steps-1
+        history=parse_residual_history((folder/'journal.trn').read_text(encoding='utf-8',errors='replace'),first,first+steps)
+        result['complete_residual_iterations']=len(history);result['final_residuals']=history[first+steps]
+        if steps==100:
+            result['checkpoint_fields']={};offset=0
+            for count,name in plan:
+                offset+=count;stored=read_saved(folder/'final.cas.h5',folder/(name+'.dat.h5'))
+                assert saved_iteration(folder/(name+'.dat.h5'))==first+offset
+                result['checkpoint_fields'][name]=stored['summary'];del stored
+        if spec.get('capture_reports'):
+            result['native_total_pressure']={str(n):total_pressure(folder,n) for n in ['input']+list(range(25,steps+1,25))}
         text=(folder/'journal.trn').read_text(encoding='utf-8',errors='replace')
         assert 'Preparing GPU solver' in text and 'NVIDIA' in text and 'GPU_NUMBA_ABI_FIX' in text
         assert 'udf_ideal_mu' in text and 'udf_ideal_k' in text
         result['native_gpu_hooks_seen']=True
-        result['files_sha256']={n:sha256(folder/n) for n in ['final.cas.h5','final.dat.h5','penultimate.dat.h5','first.dat.h5','ideal_transport.py','gpu_numba_runtime_fix.py','journal.trn']+(['second.dat.h5','third.dat.h5'] if spec['capture_startup'] else [])}
+        names=['final.cas.h5','ideal_transport.py','gpu_numba_runtime_fix.py','journal.trn']+[name+'.dat.h5' for _,name in plan]
+        if spec.get('capture_reports'):names+=[n for r in result['native_total_pressure'].values() for n in r['files_sha256']]
+        result['files_sha256']={n:sha256(folder/n) for n in names}
         result['status']='completed_pending_independent_property_audit'
     except BaseException as error:
         result.update(status='failed',error=str(error) or type(error).__name__);raise
@@ -123,9 +143,14 @@ def main():
     parser.add_argument('--linear-absolute-tolerance',type=float,choices=[1e-16,1e-20],default=1e-16,help='Explicit stricter GPU linear-solver experiment; never changes acceptance limits')
     parser.add_argument('--strict-species-linear',action='store_true',help='Explicit diagnostic: species relative linear tolerances 1e-6 and maximum inner iterations 100')
     parser.add_argument('--species-relaxation',type=float,choices=[.01,.1,1.],default=1.,help='Explicit conservative startup diagnostic; preserved original physics and acceptance limits')
-    parser.add_argument('--capture-startup',action='store_true',help='Also save and validate steps 2/3; total iterations remain 25')
+    parser.add_argument('--capture-startup',action='store_true',help='Also save and validate steps 2/3; selected iteration budget is unchanged')
+    parser.add_argument('--session-steps',type=int,choices=[25,100],default=25,help='Explicit M17 single-session comparison; default remains 25')
+    parser.add_argument('--capture-reports',action='store_true',help='After calculation, report saved 25-step endpoints in the same native session')
     args=parser.parse_args();folder=args.output.resolve();cpu=args.cpu.resolve();gpu=args.gpu.resolve()
     if folder.exists():raise ValueError('Use a new output directory')
+    if args.session_steps==100:
+        assert args.restart and args.capture_startup and args.capture_reports and args.species_relaxation==.1 and args.strict_species_linear and args.linear_absolute_tolerance==1e-20 and args.species_order=='second','M17 requires the explicit unchanged 0.1 second-order restart and complete reports'
+    if args.capture_reports:assert args.session_steps==100,'Native report capture is restricted to the M17 paired-checkpoint plan'
     assert psutil.virtual_memory().available>=4*2**30,'4 GiB available RAM required'
     assert shutil.disk_usage(folder.anchor).free>=5*2**30,'5 GiB free disk required'
     assert not any((p.info['name'] or '').lower() in {'fluent.exe','cx2520.exe','fl2520.exe'} or (p.info['name'] or '').lower().startswith('fl_mpi') for p in psutil.process_iter(['name']))
@@ -187,24 +212,25 @@ def main():
     assert Path(fluent['executable']).is_file() and Path(fluent['python']).is_file()
     spec=dict(inputs={n:dict(path=str(p),sha256=sha256(p)) for n,p in inputs.items()},fluent={**fluent,'processes':1},restart=bool(args.restart),
         mesh_fingerprint=fingerprint,device_evidence=evidence.stdout.strip(),GPU=[0],precision='double',cpu_setup_processes=1,cpu_fallback=False,
-        total_wall_limit_seconds=240,native_wall_limit_seconds=180,added_iterations=25,formal_physics_validated=False,
+        total_wall_limit_seconds=360 if args.session_steps==100 else 240,native_wall_limit_seconds=240 if args.session_steps==100 else 180,added_iterations=args.session_steps,formal_physics_validated=False,
         scientific_eligible=False,grid_independence_verified=False,implementation_sha256={},initial_solution=args.start_from,
         species_order=args.species_order,momentum_and_energy_order='second-order-upwind',
         linear_absolute_tolerance_double=args.linear_absolute_tolerance,
         strict_species_linear=args.strict_species_linear,
         species_relaxation=args.species_relaxation,capture_startup=args.capture_startup,
+        capture_reports=args.capture_reports,
         initial_solution_transport_model='ideal-gas-mixing-law' if args.start_from=='cpu' else 'mass-weighted-mixing-law',
         initial_viscosity_comparison=None if args.restart else initial_mu_comparison)
     if args.restart:spec['restart_code_sha256']={n:sha256(previous/n) for n in ['ideal_transport.py','gpu_numba_runtime_fix.py']}
     folder.mkdir(parents=True)
-    for n in list(IMPLEMENTATION)+['nozzle_platform/transport_audit.py','nozzle_platform/gpu_numba_compat.py','nozzle_platform/nozzle_gpu_probe.py']:
+    for n in list(IMPLEMENTATION)+['nozzle_platform/transport_audit.py','nozzle_platform/gpu_numba_compat.py','nozzle_platform/nozzle_gpu_probe.py','nozzle_platform/native_reports.py']:
         target=folder/'source_snapshot'/n;target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(ROOT/n,target);spec['implementation_sha256'][n]=sha256(target)
     controller=folder/'controller_source.py';shutil.copyfile(__file__,controller);spec['controller_sha256']=sha256(controller);save(folder/'spec.json',spec)
     process=contained=None;started=time.monotonic();status='failed'
     try:
         with (folder/'worker.log').open('wb') as log:
             process=subprocess.Popen([fluent['python'],'-X','utf8','-u',str(controller),'--worker',str(folder),str(ROOT)],cwd=ROOT,stdout=log,stderr=log,stdin=subprocess.DEVNULL,creationflags=subprocess.CREATE_NO_WINDOW)
-            contained=WindowsJob();contained.assign(process);process.wait(timeout=240)
+            contained=WindowsJob();contained.assign(process);process.wait(timeout=spec['total_wall_limit_seconds'])
             status='completed' if process.returncode==0 else 'worker_failed'
     except BaseException as error:
         save(folder/'controller_error.json',dict(error=str(error)));raise
