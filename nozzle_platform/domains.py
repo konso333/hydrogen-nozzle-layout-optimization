@@ -72,7 +72,7 @@ class DomainStore:
         self.domains,self.directories = {},{}
         self.lock = threading.RLock()
 
-    def create(self, request):
+    def create(self, request, *, cancel=None):
         scheme = self.designs.get(request.get("scheme_id"))
         model = self.models.get(scheme["model"]["model_id"])
         config = normalize(request,scheme,model)
@@ -89,10 +89,11 @@ class DomainStore:
                 del self.directories[domain_id]
         directory = self.root/("domain_"+uuid.uuid4().hex)
         source = self.models.root/(model["source_id"]+".step")
-        result = self.models.cad({"operation":"domain", "source":str(source),
+        job = {"operation":"domain", "source":str(source),
             "source_sha256":model["source_id"], "source_unit":model["source_unit"],
             "axis":model["axis"],"origin":model["origin_mm"],
-            "coordinates":scheme["coordinates_mm"],"config":config,"output_directory":str(directory)})
+            "coordinates":scheme["coordinates_mm"],"config":config,"output_directory":str(directory)}
+        result=self.models.cad(job,cancel=cancel) if cancel is not None else self.models.cad(job)
         artifacts = {name:hashlib.sha256((directory/name).read_bytes()).hexdigest()
                      for name in ("fluid.step","fluid.brep","fluid.geo")}
         domain = {"schema_version":1,"engine":DOMAIN_ENGINE,"domain_id":domain_id,

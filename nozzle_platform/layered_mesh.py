@@ -151,6 +151,23 @@ def cleanup_native_mapping(directory):
     subprocess.run(['subst',drive,'/D'],capture_output=True,check=True,creationflags=subprocess.CREATE_NO_WINDOW)
 
 
+def close_native_session(session,tracker,directory):
+    """SDK exit errors are warnings only after independent owned-process cleanup."""
+    from coldflow_trial.processes import cleanup_records
+    warning=None
+    try:
+        tracker.capture(session)
+        if session is not None:
+            try:session.exit(timeout=10,wait=10)
+            except Exception as error:warning=str(error)
+    finally:
+        cleanup=cleanup_records(list(tracker.owned.values()))
+        if warning:cleanup['session_exit_warning']=warning
+        save(directory/'cleanup.json',cleanup)
+        if cleanup['all_tracked_processes_exited']:cleanup_native_mapping(directory)
+    return cleanup
+
+
 def inward_skin(points,boundaries,expected_volume):
     """Validate closed oriented triangles, then use Fluent's inward winding."""
     triangles=np.concatenate(list(boundaries.values()))
@@ -226,7 +243,7 @@ def write_surface(gmsh,job,directory):
 
 
 def generate(gmsh,job,directory):
-    from coldflow_trial.processes import OwnedProcesses,cleanup_records
+    from coldflow_trial.processes import OwnedProcesses
     import ansys.fluent.core as pyfluent
     config=job['config'];settings=controls(config);regions=refinement_regions(job)
     progress=lambda message:save(directory/'progress.json',dict(message=message))
@@ -313,12 +330,7 @@ def generate(gmsh,job,directory):
         require(acceptable(quality),'壁面层体网格未通过最低正交质量 0.1／最大长宽比 100 检查，已停止。')
         solver.settings.file.write_case(file_name='native_mesh.cas.h5')
     finally:
-        try:
-            tracker.capture(session)
-            if session is not None:session.exit(timeout=10,wait=10)
-        finally:
-            cleanup=cleanup_records(list(tracker.owned.values()));save(directory/'cleanup.json',cleanup)
-            if cleanup['all_tracked_processes_exited']:cleanup_native_mapping(directory)
+        cleanup=close_native_session(session,tracker,directory)
     require(cleanup['all_tracked_processes_exited'],'壁面层网格进程退出尚未核实。')
     progress('正在独立检查体单元连通、面闭合、几何和开口数量')
     arrays=read_native(directory/'native_mesh.cas.h5')

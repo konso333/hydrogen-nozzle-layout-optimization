@@ -23,6 +23,21 @@ from tests.test_platform_mesh_study import request as study_request
 from tests.test_platform_grid_convergence import uniform_rows
 
 
+@pytest.mark.parametrize('exited',[True,False])
+def test_sdk_exit_warning_does_not_replace_independent_cleanup_gate(tmp_path,monkeypatch,exited):
+    from types import SimpleNamespace
+    from nozzle_platform.layered_mesh import close_native_session
+    def fail(**kwargs):raise RuntimeError('SDK cleanup batch failed')
+    session=SimpleNamespace(exit=fail);tracker=SimpleNamespace(capture=lambda session:None,owned={})
+    monkeypatch.setattr('coldflow_trial.processes.cleanup_records',lambda records:dict(all_tracked_processes_exited=exited))
+    removed=[];monkeypatch.setattr('nozzle_platform.layered_mesh.cleanup_native_mapping',lambda folder:removed.append(folder))
+    result=close_native_session(session,tracker,tmp_path)
+    assert result['all_tracked_processes_exited']==exited
+    assert 'SDK cleanup batch failed' in result['session_exit_warning']
+    assert bool(removed)==exited
+    assert json.loads((tmp_path/'cleanup.json').read_text())==result
+
+
 @pytest.mark.parametrize('reverse',[False,True])
 def test_surface_winding_points_into_fluid_without_reapplying_cad_signs(reverse):
     points=np.array([[0.,0.,0.],[1.,0.,0.],[0.,1.,0.],[0.,0.,1.]])

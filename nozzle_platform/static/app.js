@@ -10,6 +10,7 @@ function availability(){
   for(const id of ["export-scheme","export-cad","save-image"])$(id).disabled=state.busy||!state.scheme;
   domainAvailability();
   simulationAvailability();
+  pipelineAvailability();
 }
 function busy(on,text="处理中…"){state.busy=on;$("busy-overlay").hidden=!on;$("busy-text").textContent=text;availability();}
 async function api(path,body,headers={}){
@@ -60,7 +61,7 @@ async function loadModel(){
     $("model-info").textContent=`${model.label} · ${model.solid_count} 个实体 · 整体包络 Ø${fmt(model.envelope_diameter_mm)} mm · 原单位 ${model.source_unit}`;
     $("empty-state").hidden=true;state.viewer?.setModel(model);$("viewer-status").textContent="真实模型已载入 · 等待生成";
     $("view-subtitle").textContent=`真实 CAD 曲面 · 原轴线 ${model.axis.toUpperCase()} → 阵列 +Z · mm`;
-    notice(origin?"模型已载入。请核对安装尺寸和约束，点击「生成阵列」。":"模型已载入。安装原点按包围盒估计，请先在「轴线与安装参考点」中核对。",origin?"":"neutral");
+    notice(origin?"模型已载入。核对参数后可点击「一键运行」，也可先生成阵列预览。":"模型已载入。安装原点按包围盒估计，请先在「轴线与安装参考点」中核对。",origin?"":"neutral");
   }catch(error){notice(error.message,"error");}finally{busy(false);}
 }
 function parameters(){
@@ -148,6 +149,7 @@ async function init(){
   try{state.viewer=new NozzleViewer($("viewer"));}catch(error){notice(error.message,"error");return;}
   initializeDomains();
   initializeSimulation();
-  try{const response=await fetch("/api/bootstrap"),data=await response.json();state.sources=data.models;$("solver-capability").textContent=data.workflow.note;state.fluentAvailable=data.workflow.fluent_available;if(data.workflow.preferred_compute_device==="gpu")selectGpuValidation();sourceOptions();setSourceReference();if(state.sources.length)await loadModel();else notice("导入单喷嘴 STEP，即可开始设计。","neutral");}catch(error){notice(error.message,"error");}
+  initializePipeline();
+  try{const response=await fetch("/api/bootstrap"),data=await response.json();state.sources=data.models;$("solver-capability").textContent=data.workflow.note;state.fluentAvailable=data.workflow.fluent_available;if(data.workflow.preferred_compute_device==="gpu")selectGpuValidation();sourceOptions();setSourceReference();if(state.sources.length)await loadModel();else notice("导入单喷嘴 STEP，即可开始设计。","neutral");await refreshPipelineHistory();}catch(error){notice(error.message,"error");}
 }
 init();

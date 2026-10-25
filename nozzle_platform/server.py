@@ -6,6 +6,7 @@ import mimetypes
 from pathlib import Path
 import socket
 import traceback
+import shutil
 from urllib.parse import unquote, urlsplit
 
 from nozzle_platform.design import DesignStore
@@ -13,6 +14,7 @@ from nozzle_platform.domains import DomainStore
 from nozzle_platform.models import MAX_UPLOAD_BYTES, ModelStore
 from nozzle_platform.workflows import WorkflowStore
 from nozzle_platform.review_reports import ReviewStore
+from nozzle_platform.pipelines import PipelineStore
 
 
 STATIC = Path(__file__).with_name("static")
@@ -35,6 +37,7 @@ class PlatformServer(ThreadingHTTPServer):
         self.domains = DomainStore(Path(root) / "domains", self.models, self.designs)
         self.workflows = WorkflowStore(Path(root) / "workflows", self.domains, fluent=fluent)
         self.reviews = ReviewStore(Path(root) / 'verification_reports')
+        self.pipelines = PipelineStore(Path(root) / 'pipelines',self.designs,self.domains,self.workflows)
         super().__init__(address, Handler)
 
 
@@ -61,6 +64,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_data(json.dumps(value, ensure_ascii=False, allow_nan=False).encode("utf-8"),
                        "application/json; charset=utf-8", status)
 
+    def send_file(self,path,content_type,*,attachment=None):
+        self.send_response(200);self.send_header('Content-Type',content_type)
+        self.send_header('Content-Length',str(path.stat().st_size));self.send_header('Cache-Control','no-store')
+        self.send_header('X-Content-Type-Options','nosniff')
+        self.send_header('Referrer-Policy','no-referrer')
+        self.send_header('Content-Security-Policy',"default-src 'self'; img-src 'self' data: blob:; frame-ancestors 'none'; base-uri 'none'")
+        if attachment:self.send_header('Content-Disposition','attachment; filename="'+attachment+'"')
+        self.end_headers()
+        with path.open('rb') as stream:shutil.copyfileobj(stream,self.wfile,length=1024**2)
+
     def trusted_host(self):
         host = self.headers.get("Host", "")
         return host in {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
@@ -69,6 +82,18 @@ class Handler(BaseHTTPRequestHandler):
         if not self.trusted_host():
             return self.json({"error": "仅接受本机访问。"}, 403)
         path = urlsplit(self.path).path
+        if path=='/api/pipelines':return self.json({'tasks':self.server.pipelines.catalog()})
+        if path.startswith('/api/pipelines/'):
+            try:return self.json(self.server.pipelines.status(path.removeprefix('/api/pipelines/')))
+            except ValueError as error:return self.json({'error':str(error)},404)
+        if path.startswith('/pipeline-files/'):
+            try:
+                parts=path.removeprefix('/pipeline-files/').split('/')
+                if len(parts)!=2:raise ValueError('文件路径无效。')
+                file=self.server.pipelines.file(*parts)
+                content_type={'.png':'image/png','.svg':'image/svg+xml','.csv':'text/csv; charset=utf-8','.json':'application/json; charset=utf-8','.zip':'application/zip'}.get(file.suffix,'application/octet-stream')
+                return self.send_file(file,content_type,attachment=None if file.suffix in {'.png','.svg'} else parts[1])
+            except (OSError,ValueError,KeyError) as error:return self.json({'error':str(error)},404)
         if path=='/api/verification-reports':
             return self.json({'reports':self.server.reviews.catalog()})
         if path.startswith('/api/verification-reports/'):
@@ -101,7 +126,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_data(file.read_bytes(), "application/zip", attachment=filename)
         files = {"/": "index.html", "/app.js": "app.js", "/app.css": "app.css", "/viewer.js": "viewer.js",
                  "/domain.js":"domain.js","/domain.css":"domain.css",'/simulation.js':'simulation.js','/simulation.css':'simulation.css',
-                 '/study.js':'study.js','/validation.html':'validation.html','/validation.js':'validation.js','/validation.css':'validation.css'}
+                 '/study.js':'study.js','/pipeline.js':'pipeline.js','/pipeline.css':'pipeline.css','/validation.html':'validation.html','/validation.js':'validation.js','/validation.css':'validation.css'}
         if path not in files:
             return self.json({"error": "页面不存在。"}, 404)
         file = STATIC / files[path]
@@ -133,6 +158,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(self.server.models.load(data.get("source_id"), axis=data.get("axis", "y"), origin=data.get("origin")))
             if path == "/api/generate":
                 return self.json(self.server.designs.create(data))
+            if path=='/api/pipeline':return self.json(self.server.pipelines.start(data),202)
+            if path=='/api/pipeline-export':return self.json(self.server.pipelines.export(data.get('job_id')))
+            if path=='/api/pipeline-source':return self.json(self.server.pipelines.restore_source(data.get('job_id')))
             if path == "/api/domain":
                 return self.json(self.server.domains.create(data))
             if path == '/api/mesh':

@@ -76,12 +76,24 @@ class ModelStore:
         with self.lock:
             return list(self.sources.values())
 
-    def cad(self, job):
+    def cad(self, job, *, cancel=None):
         directory = self.root / ("job_" + uuid.uuid4().hex)
         directory.mkdir()
         job = {**job, "gmsh_path": self.gmsh_path, "result": str(directory / "result.json")}
         (directory / "job.json").write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
         creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        if cancel is not None:
+            from nozzle_platform.bounded import run
+            while not self.cad_lock.acquire(timeout=.1):
+                if cancel.is_set():raise InterruptedError('CAD 任务已停止。')
+            try:
+                code=run([sys.executable,str(Path(__file__).with_name('cad_worker.py')),str(directory/'job.json')],
+                         cwd=directory,log=directory/'cad.log',timeout=180,cancel=cancel)
+            finally:self.cad_lock.release()
+            if not Path(job['result']).is_file():raise ValueError('CAD 转换未返回结果，已保留本地日志。')
+            result=json.loads(Path(job['result']).read_text(encoding='utf-8'))
+            if code or not result['ok']:raise ValueError(result.get('error','CAD 转换失败。'))
+            return result['result']
         with self.cad_lock, (directory / "cad.log").open("wb") as log:
             try:
                 process = subprocess.run([sys.executable, str(Path(__file__).with_name("cad_worker.py")),
@@ -126,9 +138,10 @@ class ModelStore:
                 raise ValueError("请先导入并确认单喷嘴模型。")
             return self.models[model_id]
 
-    def export_array(self, model_id, coordinates, destination):
+    def export_array(self, model_id, coordinates, destination, *, cancel=None):
         model = self.get(model_id)
-        return self.cad({"operation": "export", "source": str(self.root / (model["source_id"] + ".step")),
+        job={"operation": "export", "source": str(self.root / (model["source_id"] + ".step")),"source_sha256":model['source_id'],
                          "axis": model["axis"], "origin": model["origin_mm"],
                          "source_unit": model["source_unit"],
-                         "coordinates": coordinates, "output_step": str(destination)})
+                         "coordinates": coordinates, "output_step": str(destination)}
+        return self.cad(job,cancel=cancel) if cancel is not None else self.cad(job)

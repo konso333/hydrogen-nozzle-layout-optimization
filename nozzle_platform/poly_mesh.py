@@ -87,7 +87,8 @@ def audit(arrays,domain,regions=None):
     volume_error=abs(volume/(domain['volume_mm3']*1e-9)-1)
     errors={role:abs(areas[i+1]/(domain['boundary_area_mm2'][role]*1e-6)-1) for i,role in enumerate(ROLES)}
     require(volume_error<.01,'原生体网格与 CAD 体积差超过 1%。')
-    require(max(errors.values())<.02,'原生体网格边界面积与 CAD 差超过 2%。')
+    worst=max(errors,key=errors.get)
+    require(errors[worst]<.02,f'原生体网格边界面积与 CAD 差超过 2%：{worst} 偏差 {errors[worst]*100:.4f}%；请加密该入口或表面。')
     patches={}
     for i,role in enumerate(ROLES[:3],1):
         faces=np.flatnonzero(labels==i)

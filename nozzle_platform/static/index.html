@@ -6,7 +6,8 @@
   <link rel="stylesheet" href="/app.css">
   <link rel="stylesheet" href="/domain.css">
   <link rel="stylesheet" href="/simulation.css">
-  <script src="/viewer.js" defer></script><script src="/domain.js" defer></script><script src="/simulation.js" defer></script><script src="/study.js" defer></script><script src="/app.js" defer></script>
+  <link rel="stylesheet" href="/pipeline.css">
+  <script src="/viewer.js" defer></script><script src="/domain.js" defer></script><script src="/simulation.js" defer></script><script src="/study.js" defer></script><script src="/pipeline.js" defer></script><script src="/app.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -16,7 +17,7 @@
   </header>
   <main>
     <aside class="sidebar">
-      <div class="sidebar-title"><span class="eyebrow">DESIGN PARAMETERS</span><h1>设计你的喷嘴阵列</h1><p>选择模型与排列，让程序完成定位。</p></div>
+      <div class="sidebar-title"><span class="eyebrow">DESIGN PARAMETERS</span><h1>设计你的喷嘴阵列</h1><p>导入模型、配置参数，一键完成阵列到冷流试算。</p><div class="pipeline-jumps"><a href="#pipeline-settings">比较规则</a><a href="#domain-form">腔体与供气</a><a href="#simulation-form">网格与工况</a><a href="#pipeline-panel">运行记录</a></div></div>
       <form id="design-form">
         <section class="form-section">
           <div class="section-title"><span>01</span><h2>单喷嘴模型</h2><span id="model-state" class="tag">未载入</span></div>
@@ -46,6 +47,20 @@
           <p id="spacing-hint" class="hint">自动模式会检查有限组旋转与平移，优先保留边缘余量。</p>
         </section>
         <div class="generate-wrap"><button id="generate" class="button primary" type="submit" disabled><span>生成阵列</span><span>↗</span></button><p>安装参数为可编辑示例，尚未作为制造要求确认。</p></div>
+      </form>
+      <form id="pipeline-settings">
+        <section class="form-section">
+          <div class="section-title"><span>↗</span><h2>运行与比较</h2></div>
+          <label for="pipeline-basis">比较规则</label><select id="pipeline-basis"><option value="single">运行当前单方案</option><option value="same-area">相同安装面积 · 比较多个方案</option><option value="same-heat">相同燃料热输入 · 比较多个方案</option></select>
+          <div id="pipeline-extra" hidden>
+            <p class="hint">当前数量和排列作为方案 1。所有方案共用当前安装区域、模型、装配约束及网格设置，依次运行。</p>
+            <div class="two-fields"><label>方案 2 · N<input id="pipeline-n2" type="number" min="1" max="25" step="1" value="9"></label><label>方案 2 · 排列<select id="pipeline-family2"><option value="honeycomb">蜂巢</option><option value="sunflower">向日葵</option><option value="rectangular">方阵</option><option value="ring">环形</option></select></label></div>
+            <label class="check-label"><input id="pipeline-third" type="checkbox"><span>增加方案 3</span></label>
+            <div id="pipeline-third-fields" class="two-fields" hidden><label>方案 3 · N<input id="pipeline-n3" type="number" min="1" max="25" step="1" value="9"></label><label>方案 3 · 排列<select id="pipeline-family3"><option value="sunflower">向日葵</option><option value="honeycomb">蜂巢</option><option value="rectangular">方阵</option><option value="ring">环形</option></select></label></div>
+          </div>
+          <div id="pipeline-heat" hidden><label for="pipeline-power">每个方案的燃料热输入 / kW</label><input id="pipeline-power" type="number" min="0.000001" max="10000" step="any" value="0.08"><p class="hint">按实际网格入口面积调整燃料速度，求解后核对实际质量流量。空气保留当前入口速度，总流量另列。冷流阶段不模拟燃烧放热。</p></div>
+          <details><summary>热值与场图截面</summary><label for="pipeline-lhv">氢气低位热值 / MJ·kg⁻¹</label><input id="pipeline-lhv" type="number" min="100" max="150" step="any" value="120"><div class="two-fields"><label>截面方向<select id="pipeline-axis"><option value="y">Y = 常数</option><option value="x">X = 常数</option></select></label><label>截面位置 / mm<input id="pipeline-position" type="number" step="any" value="0"></label></div><p class="hint">速度、静压、温度和氢质量分数来自实际保存场。多方案使用相同截面和共同色标。</p></details>
+        </section>
       </form>
       <form id="domain-form">
         <fieldset id="domain-fieldset" disabled>
@@ -116,8 +131,21 @@
       </form>
     </aside>
     <div class="workspace">
-      <div class="workspace-heading"><div><span class="eyebrow">ARRAY DESIGN STUDIO</span><h2>从阵列设计，到冷流试算<span>。</span></h2><p id="workspace-caption">设计阵列、构建流体域、检查体网格，再运行 Fluent。</p></div><span class="version">三档网格对比 v0.5</span></div>
+      <div class="workspace-heading"><div><span class="eyebrow">ARRAY DESIGN STUDIO</span><h2>从一个喷嘴，到自动仿真<span>。</span></h2><p id="workspace-caption">配置完成后，一键生成阵列、构建流体域、划分网格并运行 Fluent 冷流。</p></div><span class="version">一键冷流工作流</span></div>
       <div id="notice" class="notice" role="status" aria-live="polite">正在读取本地模型目录…</div>
+      <section class="pipeline-panel" id="pipeline-panel" aria-label="一键运行与方案结果">
+        <div class="pipeline-heading"><div><span class="eyebrow">AUTOMATED WORKFLOW</span><h3>配置一次，程序依次完成</h3><p id="pipeline-ready">载入模型并确认供气模板后可运行。</p></div><button id="run-pipeline" class="button primary" type="button" disabled>一键运行 ↗</button></div>
+        <p class="pipeline-scope">当前供气模板下每方案最多 25 个喷嘴，运行氢气／空气冷流。GPU 沿用界面所选的接入短测与明确物性；未收敛结果保留状态，不用于燃烧性能排名。</p>
+        <div class="pipeline-history"><label for="pipeline-history">运行记录</label><select id="pipeline-history"><option value="">暂无运行记录</option></select><button id="pipeline-refresh" type="button" class="button secondary">刷新</button></div>
+        <div id="pipeline-result" hidden>
+          <div class="pipeline-progress"><strong id="pipeline-message" role="status" aria-live="polite"></strong><div><button id="pipeline-stop" class="button secondary" type="button" hidden>停止运行</button><button id="pipeline-export" class="button dark" type="button" disabled>导出本次结果 ↓</button></div></div>
+          <div id="pipeline-stages"></div><p id="pipeline-rule" class="hint"></p>
+          <div class="table-wrap"><table><thead><tr><th>方案</th><th>N／排列</th><th>安装面积 / mm²</th><th>实际热输入 / kW</th><th>空气总流量 / kg·s⁻¹</th><th>燃料总压差 / Pa</th><th>空气总压差 / Pa</th><th>状态</th><th>装配</th></tr></thead><tbody id="pipeline-rows"></tbody></table></div>
+          <div class="pipeline-map-controls"><label>查看方案<select id="pipeline-map-case"></select></label><label>物理量<select id="pipeline-map-field"><option value="speed">速度大小 / m·s⁻¹</option><option value="pressure">静表压 / Pa</option><option value="temperature">温度 / K</option><option value="h2">氢质量分数</option></select></label></div>
+          <p id="pipeline-map-note" class="hint">尚未生成仿真场图。</p><img id="pipeline-map" class="pipeline-map" alt="实际保存场截面图" hidden>
+          <details><summary>本次已生成文件</summary><div id="pipeline-files" class="pipeline-files"></div></details>
+        </div>
+      </section>
       <section class="viewer-card">
         <div class="viewer-toolbar"><div class="view-tabs"><button id="view-3d" class="selected" type="button">三维装配</button><button id="view-plan" type="button">二维排布</button><button id="view-domain" type="button" disabled>流体域</button><button id="view-mesh" type="button" disabled>体网格</button></div><div class="viewer-actions"><button id="reset-view" type="button">重置视角</button><button id="save-image" type="button" disabled>保存图像 ↓</button></div></div>
         <div class="viewport" id="viewport"><canvas id="viewer" aria-label="可拖动旋转、滚轮缩放的真实喷嘴三维预览"></canvas><div id="plan-view" hidden></div><div class="view-label"><span id="view-name">单喷嘴预览</span><small id="view-subtitle">真实 STEP 曲面 · mm</small></div><div class="view-guide" id="view-guide">拖动旋转 · 滚轮缩放</div><div id="empty-state"><span>✣</span><h3>从一个喷嘴开始</h3><p>载入模型，建立你的阵列。</p></div><div id="busy-overlay" hidden><div class="spinner"></div><strong id="busy-text">处理中…</strong><small>程序正在本机执行，请稍候。</small></div></div>
@@ -138,7 +166,7 @@
       </section>
       <section class="metrics" aria-label="几何检查结果"><div><span>实际喷嘴数量</span><strong id="metric-count">—</strong><small>目标数量保持不变</small></div><div><span>最小中心距</span><strong id="metric-spacing">—</strong><small>mm</small></div><div><span>最小净间隙</span><strong id="metric-gap">—</strong><small>mm · 整体包络之间</small></div><div><span>最小边缘余量</span><strong id="metric-wall">—</strong><small>mm · 相对安装边界</small></div></section>
       <section class="results-card"><div class="results-heading"><div><h3>方案与坐标</h3><p id="result-note">生成后可检查坐标，导出参数与真实实体阵列。</p></div><div class="export-actions"><button id="export-scheme" class="button secondary" type="button" disabled>导出方案 ↓</button><button id="export-cad" class="button dark" type="button" disabled>导出实体 STEP ↓</button></div></div><div class="table-wrap"><table><thead><tr><th>喷嘴编号</th><th>X / mm</th><th>Y / mm</th><th>Z / mm</th><th>检查状态</th></tr></thead><tbody id="coordinate-rows"><tr><td colspan="5" class="empty-table">尚未生成阵列</td></tr></tbody></table></div><p class="scope">阵列设计完成后，可在左侧构建公共流体域、生成体网格并设置非反应冷流试算；实际求解需要可用的本机 Fluent 许可证。</p></section>
-      <footer class="page-footer"><span>NOZZLE LAB / 网格质量与收敛节点</span><span>模型与计算文件保存在本机</span></footer>
+      <footer class="page-footer"><span>NOZZLE LAB / 多喷嘴设计与自动冷流</span><span>模型与计算文件保存在本机</span></footer>
     </div>
   </main>
 </body>

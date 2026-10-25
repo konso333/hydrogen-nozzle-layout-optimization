@@ -80,7 +80,8 @@ def condition_mesh(session, directory, progress, *, preserve_layers=False, allow
             minimum_fluent_orthogonal_quality=initial['minimum_orthogonal_quality'],
             maximum_fluent_aspect_ratio=initial['maximum_aspect_ratio'],mesh_quality_limits=limits,
             mesh_quality_history=history))
-        raise ValueError('壁面层网格导入后未通过质量门限；请重新生成网格。')
+        kind='壁面层网格导入后' if preserve_layers else 'GPU 导入网格（不自动转换或改善）'
+        raise ValueError(f'{kind}未通过质量门限：最低正交质量 {initial["minimum_orthogonal_quality"]:.6g}（需 ≥ {MINIMUM_ORTHOGONAL_QUALITY:g}），最大长宽比 {initial["maximum_aspect_ratio"]:.6g}（需 ≤ {MAXIMUM_ASPECT_RATIO:g}）；请重新生成网格。')
     if not acceptable(current):
         progress('正在直接转换多面体，联合检查正交质量与长宽比')
         session.settings.mesh.polyhedra.convert_domain()

@@ -2,7 +2,7 @@
 const domainFields=["domain-template","chamber-radius","chamber-length","chamber-start","passage-radius","upstream-z","fuel-z","fuel-band","air-ports","fuel-ports","template-confirmed"];
 const domainRoleInfo={oxidizer_inlet:["空气入口","air"],fuel_inlet:["氢气入口","fuel"],outlet:["公共出口","outlet"],wall:["壁面","wall"]};
 function domainAvailability(){
-  $("domain-fieldset").disabled=state.busy||!state.scheme;
+  $("domain-fieldset").disabled=state.busy||!state.model;
   $("build-domain").disabled=state.busy||!state.scheme||!$("template-confirmed").checked;
   $("export-domain").disabled=state.busy||!state.domain;
   $("view-domain").disabled=state.busy||!state.domain;
@@ -15,9 +15,9 @@ function invalidateDomain(){
   state.domain=null;$("domain-results").hidden=true;$("boundary-cards").replaceChildren();
   if(state.view==="domain")switchView("3d");
 }
-function domainParameters(){
+function domainParameters(schemeId=state.scheme?.scheme_id){
   const n=id=>{const text=$(id).value.trim(),value=Number(text);if(!text||!Number.isFinite(value))throw new Error("请完整填写流体域参数，数值必须有限。");return value;};
-  return {scheme_id:state.scheme.scheme_id,chamber_radius_mm:n("chamber-radius"),chamber_length_mm:n("chamber-length"),chamber_start_z_mm:n("chamber-start"),passage_radius_mm:n("passage-radius"),upstream_z_mm:n("upstream-z"),fuel_z_mm:n("fuel-z"),fuel_half_band_mm:n("fuel-band"),oxidizer_ports_per_nozzle:n("air-ports"),fuel_ports_per_nozzle:n("fuel-ports"),boundary_template:$("domain-template").value,template_confirmed:$("template-confirmed").checked};
+  return {scheme_id:schemeId,chamber_radius_mm:n("chamber-radius"),chamber_length_mm:n("chamber-length"),chamber_start_z_mm:n("chamber-start"),passage_radius_mm:n("passage-radius"),upstream_z_mm:n("upstream-z"),fuel_z_mm:n("fuel-z"),fuel_half_band_mm:n("fuel-band"),oxidizer_ports_per_nozzle:n("air-ports"),fuel_ports_per_nozzle:n("fuel-ports"),boundary_template:$("domain-template").value,template_confirmed:$("template-confirmed").checked};
 }
 function displayDomain(domain){
   state.domain=domain;$("domain-results").hidden=false;$("boundary-cards").replaceChildren();

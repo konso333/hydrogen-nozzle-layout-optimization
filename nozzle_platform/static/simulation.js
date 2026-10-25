@@ -2,8 +2,8 @@
 const meshFields=["mesh-min","mesh-max","mesh-inlet","mesh-distance","mesh-algorithm","mesh-curvature","mesh-passage","mesh-factor","mesh-budget","mesh-method","mesh-layer-first","mesh-layer-count","mesh-layer-total","mesh-local-volume"];
 const flowFields=["flow-fuel","flow-air","flow-temperature","flow-oxygen","flow-iterations","flow-mode","flow-time-budget","flow-device","flow-transport"];
 function simulationAvailability(){
-  $("mesh-fieldset").disabled=state.busy||!state.domain;
-  $("flow-fieldset").disabled=state.busy||!state.domain||!state.fluentAvailable;
+  $("mesh-fieldset").disabled=state.busy||!state.model;
+  $("flow-fieldset").disabled=state.busy||!state.model||!state.fluentAvailable;
   $("study-fieldset").disabled=state.busy||!state.domain||!state.fluentAvailable;
   const shortTest=$("flow-mode").value==="gpu-validation",gpu=$("flow-device").value==="gpu";
   $("run-study").disabled=state.busy||!state.domain||!state.fluentAvailable||shortTest||gpu||$("flow-transport").value!=="ideal-gas-mixing-law";

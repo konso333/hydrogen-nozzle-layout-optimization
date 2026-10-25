@@ -1,3 +1,6 @@
 -r requirements.txt
 gmsh==4.15.2
 scipy>=1.14
+# Platform-side resource checks and saved-field maps (also needed outside the Fluent worker environment).
+h5py==3.15.1
+psutil==7.0.0
