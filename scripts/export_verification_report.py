@@ -1,4 +1,4 @@
-"""Install audited M16/M17 records for the local platform's read-only report page."""
+"""Install audited M16/M17/M18 records for the local platform's read-only report page."""
 import argparse,json,sys
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
@@ -9,11 +9,16 @@ def pct(value):return None if value is None else f'{value*100:.5f}%'
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--audit',type=Path,required=True);p.add_argument('--kind',choices=['m16','m17'],required=True)
+    p.add_argument('--audit',type=Path,required=True);p.add_argument('--kind',choices=['m16','m17','m18'],required=True)
     p.add_argument('--report-id',required=True);p.add_argument('--output-root',type=Path,required=True)
     a=p.parse_args();audit_path=a.audit.resolve();data=json.loads(audit_path.read_text(encoding='utf-8'))
     for n,d in data['artifacts_sha256'].items():assert sha256(audit_path.parent/n)==d
     assert not data['scientific_eligible'] and not data['formal_physics_validated']
+    if a.kind=='m18':
+        from nozzle_platform.convergence_review import build_report
+        report,artifacts=build_report(data,audit_path,a.report_id)
+        print('Installed immutable report',install_review(a.output_root,report,artifacts))
+        return
     if a.kind=='m16':
         assert data['status']=='bounded_gpu_continuation_independently_audited' and data['accepted_added_iterations']==100
         title='M16 · 四批 GPU 保存重启验证';steps=100;checkpoints=20
