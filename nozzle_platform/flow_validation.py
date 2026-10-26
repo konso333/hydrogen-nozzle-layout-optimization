@@ -97,6 +97,7 @@ def verify_saved_fluxes(directory, point):
         fields = data['results/1/phase-1/cells/SV_Y/1'][()]
         if not np.isfinite(fields).all() or fields.min() < -1e-10 or fields.max()>1+1e-10:
             raise ValueError('保存的组分质量分数越界或包含非有限数。')
-        if np.max(abs(fields.sum(axis=1)-1))>1e-8:
-            raise ValueError('保存的组分质量分数之和不为 1。')
+        maximum_deviation=float(np.max(abs(fields.sum(axis=1)-1)))
+        if maximum_deviation>1e-8:
+            raise ValueError(f'保存的组分质量分数之和不为 1：最大偏差 {maximum_deviation:.9g}，门限 1e-8。数据未修补，已停止验收。')
     return {'checked':True,'boundary_reports':result,'species_fraction_range_checked':True}

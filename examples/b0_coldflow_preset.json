@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "name": "B0 真实单喷嘴 · GPU 冷流起步",
+  "model_reference": {
+    "source_sha256": "305db6be19f4d50d85f75964a655882ab90d970e1ebac3f80d9e78d84b461efe",
+    "source_unit": "mm",
+    "name": "B0_baseline_merged_solid.step",
+    "axis": "y",
+    "origin_input_mm": [-1.23997517936, 11.67710738097, 25],
+    "model_engine": "cad-rigid-2"
+  },
+  "request": {
+    "design": {
+      "model_id": "a43c4fa2a8ffa50be3d20a2fa07e6f1d253b1c7da006f8c0312b9ad4808936da",
+      "N": 1, "family": "rectangular", "region": "circle", "radius_mm": 40,
+      "start_angle_deg": 0, "sweep_angle_deg": 360, "diameter_mm": 20,
+      "edge_gap_mm": 1, "wall_clearance_mm": 0.1,
+      "spacing_mode": "auto", "spacing_mm": 21, "rotation_deg": 0
+    },
+    "domain": {
+      "chamber_radius_mm": 42, "chamber_length_mm": 60, "chamber_start_z_mm": -1.5,
+      "passage_radius_mm": 7, "upstream_z_mm": -28, "fuel_z_mm": -4,
+      "fuel_half_band_mm": 0.5, "oxidizer_ports_per_nozzle": 10, "fuel_ports_per_nozzle": 16,
+      "boundary_template": "axial_air_side_hydrogen", "template_confirmed": false
+    },
+    "mesh": {
+      "min_size_mm": 0.03, "max_size_mm": 2, "inlet_size_mm": 0.07, "refine_distance_mm": 2,
+      "algorithm": "delaunay", "curvature_samples": 27, "passage_size_mm": 0.5,
+      "size_factor": 1.25, "cell_budget": 1500000, "mesh_method": "layered-polyhex",
+      "layer_first_height_mm": 0.025, "layer_count": 5, "layer_thickness_mm": 0.25,
+      "local_volume_refinement": true
+    },
+    "flow": {
+      "fuel_velocity_m_s": 1, "oxidizer_velocity_m_s": 1, "temperature_K": 300,
+      "oxidizer_o2_mass_fraction": 0.233, "iterations": 100, "convergence_mode": "gpu-validation",
+      "time_budget_seconds": 240, "compute_device": "gpu", "transport_model": "mass-weighted-mixing-law"
+    },
+    "comparison": {"basis": "single", "cases": [], "fuel_lhv_MJ_kg": 120},
+    "section": {"axis": "y", "position_mm": 0}
+  }
+}

@@ -15,6 +15,7 @@ from nozzle_platform.models import MAX_UPLOAD_BYTES, ModelStore
 from nozzle_platform.workflows import WorkflowStore
 from nozzle_platform.review_reports import ReviewStore
 from nozzle_platform.pipelines import PipelineStore
+from nozzle_platform.presets import PresetStore
 
 
 STATIC = Path(__file__).with_name("static")
@@ -38,6 +39,7 @@ class PlatformServer(ThreadingHTTPServer):
         self.workflows = WorkflowStore(Path(root) / "workflows", self.domains, fluent=fluent)
         self.reviews = ReviewStore(Path(root) / 'verification_reports')
         self.pipelines = PipelineStore(Path(root) / 'pipelines',self.designs,self.domains,self.workflows)
+        self.presets = PresetStore(Path(root)/'presets',self.models,builtin=Path(__file__).parents[1]/'examples/b0_coldflow_preset.json')
         super().__init__(address, Handler)
 
 
@@ -82,6 +84,14 @@ class Handler(BaseHTTPRequestHandler):
         if not self.trusted_host():
             return self.json({"error": "仅接受本机访问。"}, 403)
         path = urlsplit(self.path).path
+        if path=='/api/presets':return self.json({'presets':self.server.presets.catalog()})
+        if path.startswith('/preset-files/'):
+            try:
+                name=path.removeprefix('/preset-files/')
+                if not name.endswith('.json'):raise ValueError('预设文件路径无效。')
+                file=self.server.presets.export(name[:-5])
+                return self.send_file(file,'application/json; charset=utf-8',attachment='nozzle_preset_'+name)
+            except (OSError,ValueError,KeyError,TypeError) as error:return self.json({'error':str(error)},404)
         if path=='/api/pipelines':return self.json({'tasks':self.server.pipelines.catalog()})
         if path.startswith('/api/pipelines/'):
             try:return self.json(self.server.pipelines.status(path.removeprefix('/api/pipelines/')))
@@ -127,6 +137,7 @@ class Handler(BaseHTTPRequestHandler):
         files = {"/": "index.html", "/app.js": "app.js", "/app.css": "app.css", "/viewer.js": "viewer.js",
                  "/domain.js":"domain.js","/domain.css":"domain.css",'/simulation.js':'simulation.js','/simulation.css':'simulation.css',
                  '/study.js':'study.js','/pipeline.js':'pipeline.js','/pipeline.css':'pipeline.css','/validation.html':'validation.html','/validation.js':'validation.js','/validation.css':'validation.css'}
+        files.update({'/presets.js':'presets.js','/presets.css':'presets.css'})
         if path not in files:
             return self.json({"error": "页面不存在。"}, 404)
         file = STATIC / files[path]
@@ -161,6 +172,16 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/pipeline':return self.json(self.server.pipelines.start(data),202)
             if path=='/api/pipeline-export':return self.json(self.server.pipelines.export(data.get('job_id')))
             if path=='/api/pipeline-source':return self.json(self.server.pipelines.restore_source(data.get('job_id')))
+            if path=='/api/pipeline-check':return self.json(self.server.pipelines.preflight(data))
+            if path in ('/api/preset-save','/api/preset-load','/api/preset-import'):
+                with self.server.workflows.lock:
+                    if self.server.workflows.active or self.server.workflows.reservation:raise ValueError('本机任务运行时参数已锁定，请结束后再载入或保存其他预设。')
+                if path=='/api/preset-import':return self.json(self.server.presets.import_settings(data))
+                if path=='/api/preset-save':
+                    if set(data)!={'name','request'}:raise ValueError('请提供预设名称和完整参数。')
+                    return self.json(self.server.presets.store(data['name'],data['request']))
+                if set(data)!={'preset_id'}:raise ValueError('请提供预设编号。')
+                return self.json(self.server.presets.load(data['preset_id']))
             if path == "/api/domain":
                 return self.json(self.server.domains.create(data))
             if path == '/api/mesh':

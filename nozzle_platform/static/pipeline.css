@@ -2,5 +2,7 @@
 
 .pipeline-heading>div{flex:1}.pipeline-heading .button{width:auto;flex:0 0 auto;justify-content:center}.pipeline-stage{overflow-wrap:anywhere;min-width:0}.pipeline-jumps{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0}.pipeline-jumps a{font-size:10px;color:#3b7867;text-decoration:none;border:1px solid #dfebe5;border-radius:5px;padding:5px 7px}
 .pipeline-panel th{white-space:nowrap}.pipeline-panel td button{padding:6px 9px;border:1px solid #cbded4;border-radius:6px;background:#f4f9f6;color:#28694f;font-size:11px;cursor:pointer}.pipeline-panel td button:disabled{opacity:.5;cursor:default}
+.pipeline-recovery{font-size:12px;line-height:1.8;color:#805c34;background:#fff8eb;padding:10px;border-radius:6px;margin:10px 0 0}
+.pipeline-files .unverified-file{color:#95512d;background:#fff5eb;border-radius:4px;padding:3px 5px}
 @media(min-width:781px){.sidebar{position:sticky;top:0;align-self:start;max-height:calc(100vh - 80px);overflow-y:auto;scrollbar-width:thin}}
 @media(max-width:780px){body{padding-bottom:70px}.pipeline-heading .button{position:fixed;bottom:12px;left:18px;right:18px;width:auto;z-index:20;box-shadow:0 5px 18px #173b4330}.pipeline-jumps a{font-size:12px;padding:7px}.pipeline-panel{scroll-margin-top:12px}}

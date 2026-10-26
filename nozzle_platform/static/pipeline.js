@@ -30,7 +30,9 @@ function displayPipeline(task){
  $("pipeline-stages").replaceChildren();$("pipeline-rows").replaceChildren();const previous=$("pipeline-map-case").value;$("pipeline-map-case").replaceChildren();
  for(const row of task.cases){
   const card=pipelineNode("div",undefined,"pipeline-case");card.append(pipelineNode("strong",`方案 ${row.index} · N=${row.N} · ${familyNames[row.family]}`));const list=pipelineNode("div",undefined,"pipeline-stage-list");
-  for(const stage of row.stages){const box=pipelineNode("div",undefined,"pipeline-stage "+stage.status);box.append(pipelineNode("b",pipelineStageNames[stage.name]),pipelineNode("span",stage.message));list.append(box);}card.append(list);$("pipeline-stages").append(card);
+  for(const stage of row.stages){const box=pipelineNode("div",undefined,"pipeline-stage "+stage.status);box.append(pipelineNode("b",pipelineStageNames[stage.name]),pipelineNode("span",stage.message));list.append(box);}card.append(list);
+  if(/许可证|license/i.test(row.error||""))card.append(pipelineNode("p","许可恢复：若使用本机 PLE 且在休眠后失效，请在任务管理器的服务页重启对应许可服务。Fluent 2025 R2 对应 Ansys PLE Licensing 2025 R2，可能需要 Windows 管理员权限；学校网络许可请检查已配置的服务器。恢复后可载入预设重新运行，原失败记录保留。","pipeline-recovery"));
+  $("pipeline-stages").append(card);
   const tr=pipelineNode("tr");for(const v of [row.index,`${row.N} / ${familyNames[row.family]}`,fmt(row.installation_area_mm2,2),fmt(row.actual_fuel_heat_input_kW,6),fmt(row.actual_air_mass_flow_kg_s,8),fmt(row.pressure_drop_Pa?.fuel_inlet,5),fmt(row.pressure_drop_Pa?.oxidizer_inlet,5),pipelineStatusNames[row.status]||row.status])tr.append(pipelineNode("td",v));
   const view=pipelineNode("td"),button=pipelineNode("button","载入装配");button.type="button";button.disabled=!row.scheme_id||running;button.addEventListener("click",()=>showPipelineAssembly(row.index));view.append(button);tr.append(view);$("pipeline-rows").append(tr);
   const option=pipelineNode("option",`方案 ${row.index} · ${familyNames[row.family]}`);option.value=String(row.index);$("pipeline-map-case").append(option);
@@ -39,7 +41,7 @@ function displayPipeline(task){
  const selected=$("pipeline-map-case").value,firstMap=task.cases.find(row=>task.files.some(f=>f.name===`case${row.index}_speed.png`));
  if(firstMap&&!task.files.some(f=>f.name===`case${selected}_speed.png`))$("pipeline-map-case").value=String(firstMap.index);
  const basis=task.config.comparison.basis;$("pipeline-rule").textContent=(basis==="same-heat"?`相同燃料热输入：目标 ${task.config.comparison.fuel_heat_input_kW} kW；按 ${task.config.comparison.fuel_lhv_MJ_kg} MJ/kg 计算。`:basis==="same-area"?"所有方案使用相同圆形／扇形安装区域。":"当前单方案。")+(!running?` 比较条件${task.comparison_rule_verified===true?"已核对":basis==="single"?"不适用":"尚未全部核对"}；未收敛与接入短测数据不用于正式优选。`:"");
- $("pipeline-files").replaceChildren();for(const file of task.files){const link=pipelineNode("a",file.name);link.href=file.url;link.download=file.name;$("pipeline-files").append(link);}
+ $("pipeline-files").replaceChildren();for(const file of task.files){const link=pipelineNode("a",file.name);link.href=file.url;link.download=file.name;if(file.name.includes("_unverified_")){link.textContent="诊断 · "+file.name;link.title="未通过验收，仅供失败或中断诊断，不用于方案优选";link.className="unverified-file";}$("pipeline-files").append(link);}
  displayPipelineMap();
  const first=task.cases[0],previewKey=task.job_id+":"+first?.scheme_id;
  if(first?.scheme_id&&task.files.some(f=>f.name==="case1_scheme.json")&&task.config.design.model_id===state.model?.model_id&&pipelineState.previewKey!==previewKey){pipelineState.previewKey=previewKey;showPipelineAssembly(1);}
@@ -54,8 +56,10 @@ async function showPipelineAssembly(index){
  const task=pipelineState.task,file=task.files.find(f=>f.name===`case${index}_scheme.json`);if(!file)return;
  try{
   if(task.config.design.model_id!==state.model?.model_id){
-   const restored=await api("/api/pipeline-source",{job_id:task.job_id});state.sources=restored.models;sourceOptions(restored.source.source_id);setSourceReference();
-   await loadModel();if(task.config.design.model_id!==state.model?.model_id)throw Error("模型参考坐标未能恢复为该任务快照，仍可查看场图及导出原始装配。");
+   const wasBusy=state.busy;busy(true,"正在恢复历史模型参考坐标…");
+   try{const restored=await api("/api/pipeline-source",{job_id:task.job_id});invalidateModel();state.sources=restored.models;sourceOptions(restored.source.source_id);$("axis").value=restored.model.axis;installModel(restored.model);
+    if(task.config.design.model_id!==state.model?.model_id)throw Error("模型参考坐标未能恢复为该任务快照，仍可查看场图及导出原始装配。");
+   }finally{busy(wasBusy);}
   }
   const scheme=await pipelineGet(file.url);if(pipelineState.task?.job_id!==task.job_id)return;
   const ids={N:"count",family:"family",region:"region",radius_mm:"radius",start_angle_deg:"start-angle",sweep_angle_deg:"sweep-angle",diameter_mm:"diameter",edge_gap_mm:"gap",wall_clearance_mm:"wall",spacing_mode:"spacing-mode",spacing_mm:"spacing",rotation_deg:"rotation"};
@@ -83,7 +87,7 @@ function initializePipeline(){
  for(const id of ["pipeline-basis","pipeline-third"])$(id).addEventListener("input",pipelineAvailability);
  $("run-pipeline").addEventListener("click",async()=>{if(state.busy){$("pipeline-panel").scrollIntoView({block:"start"});return;}if(!state.model)return;try{const request=pipelineRequest();state.busy=true;availability();const task=await api("/api/pipeline",request);state.job=task.job_id;$("busy-overlay").hidden=true;$("pipeline-panel").scrollIntoView({block:"start"});await refreshPipelineHistory(task.job_id);}catch(e){state.busy=false;availability();notice(e.message,"error");}});
  $("pipeline-stop").addEventListener("click",async()=>{try{await api("/api/stop-job",{job_id:pipelineState.task.job_id});$("pipeline-stop").disabled=true;}catch(e){notice(e.message,"error");}});
- $("pipeline-export").addEventListener("click",async()=>{const button=$("pipeline-export");button.disabled=true;try{const r=await api("/api/pipeline-export",{job_id:pipelineState.task.job_id});download(r.download_url,r.filename);}catch(e){notice(e.message,"error");}finally{button.disabled=false;}});
+ $("pipeline-export").addEventListener("click",async()=>{const button=$("pipeline-export"),key=pipelineState.task.job_id;button.disabled=true;try{const r=await api("/api/pipeline-export",{job_id:key});if(pipelineState.task?.job_id===key)displayPipeline(await pipelineGet("/api/pipelines/"+key));download(r.download_url,r.filename);}catch(e){notice(e.message,"error");}finally{button.disabled=false;}});
  $("pipeline-refresh").addEventListener("click",()=>refreshPipelineHistory().catch(e=>notice(e.message,"error")));
  $("pipeline-history").addEventListener("change",()=>watchPipeline($("pipeline-history").value));
  for(const id of ["pipeline-map-case","pipeline-map-field"])$(id).addEventListener("change",displayPipelineMap);

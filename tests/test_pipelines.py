@@ -124,6 +124,35 @@ def test_mesh_failure_never_launches_fluent_and_coordinates_still_export(store):
     assert any(f['name']=='case1_coordinates.csv' for f in task['files'])
 
 
+def test_failed_flow_exports_unverified_pair_without_success_or_maps(store,monkeypatch):
+    original=store.workflows._start
+    def fail(kind,*args,**kwargs):
+        child=original(kind,*args,**kwargs)
+        if kind=='flow':
+            task=store.workflows.jobs[child['job_id']];task.update(status='failed',message='SYNTHETIC saved-field failure',diagnostics={'iterations_completed':25})
+        return child
+    monkeypatch.setattr(store.workflows,'_start',fail)
+    task=finished(store,request());row=task['cases'][0]
+    assert row['status']=='failed' and row['iterations']==25 and not task['comparison_eligible']
+    store.export(task['job_id'])
+    with zipfile.ZipFile(store.file(task['job_id'],'results.zip')) as bundle:
+        assert 'case1_unverified_flow_final.cas.h5' in bundle.namelist()
+        assert 'case1_unverified_flow_final.dat.h5' in bundle.namelist()
+        assert 'diagnostic_README.txt' in bundle.namelist()
+        assert 'case1_final.cas.h5' not in bundle.namelist() and 'case1_speed.png' not in bundle.namelist()
+
+
+def test_old_failed_record_collects_diagnostic_files_on_first_export_without_rewriting_result(store):
+    store.workflows.fail_mesh=True;task=finished(store,request());key=task['job_id'];row=task['cases'][0]
+    child_folder=store.workflows.root/('mesh_'+row['mesh_job_id']);(child_folder/'cleanup.json').write_text('{"all_tracked_processes_exited":true}')
+    summary=store.file(key,'summary.json').read_bytes();old_message=task['message'];old_error=row['error']
+    restored=PipelineStore(store.root,store.designs,store.domains,Workflows(store.workflows.root,store.domains));restored.export(key)
+    fresh=restored.status(key)
+    assert fresh['message']==old_message and fresh['cases'][0]['error']==old_error
+    assert restored.file(key,'summary.json').read_bytes()==summary
+    assert any(f['name']=='case1_unverified_mesh_cleanup.json' for f in fresh['files'])
+
+
 def test_cancel_during_assembly_does_not_start_domain_mesh_or_solver(store,monkeypatch):
     original=store.designs.models.export_array
     def stop(*a,**kw):
@@ -147,6 +176,13 @@ def test_interrupted_history_never_restarts_native_jobs(store):
     key='a'*32;folder=store.root/('run_'+key);folder.mkdir();save(folder/'task.json',dict(job_id=key,status='running',message='old',files={}))
     other=Workflows(store.workflows.root,store.domains);restored=PipelineStore(store.root,store.designs,store.domains,other)
     assert restored.status(key)['status']=='interrupted' and not other.calls and other.reservation is None
+
+
+def test_restored_history_uses_start_time_instead_of_directory_iteration_order(store):
+    for key,when in [('a'*32,200),('b'*32,100)]:
+        folder=store.root/('run_'+key);folder.mkdir();save(folder/'task.json',dict(job_id=key,status='completed',message='historical',files={},started_at=when))
+    other=Workflows(store.workflows.root,store.domains);restored=PipelineStore(store.root,store.designs,store.domains,other)
+    assert [r['job_id'] for r in restored.catalog()]==['a'*32,'b'*32]
 
 
 def test_original_request_is_frozen_and_active_task_cannot_be_queued_twice(store,monkeypatch):
@@ -195,8 +231,8 @@ def test_thread_start_failure_releases_machine_reservation(store,monkeypatch):
     assert store.catalog()[0]['status']=='failed'
 
 
-@pytest.mark.parametrize('origin',[None,[1.,2.,3.]])
-def test_restore_model_source_preserves_axis_and_origin_mode(store,tmp_path,origin):
+@pytest.mark.parametrize('origin,has_input',[(None,False),([1.,2.,3.],False),([1,2,3],True),([1,2,3],False)])
+def test_restore_model_source_preserves_axis_and_origin_mode(store,tmp_path,monkeypatch,origin,has_input):
     from nozzle_platform.models import ModelStore,MODEL_ENGINE,digest
     task=finished(store,request());key=task['job_id']
     models=ModelStore(tmp_path/'restored_models')
@@ -204,8 +240,15 @@ def test_restore_model_source_preserves_axis_and_origin_mode(store,tmp_path,orig
     source_id=digest(raw);path=store.root/'saved_model.step';path.write_bytes(raw)
     model_id=digest(json.dumps([MODEL_ENGINE,source_id,'z',origin],sort_keys=True).encode())
     state=store.workflows.status(key);state['model_reference']=dict(source_id=source_id,model_id=model_id,axis='z',origin_mm=origin or [4.,5.,6.],model_engine=MODEL_ENGINE,name='fixture.step')
+    if origin is not None:state['model_reference']['origin_mm']=[float(v) for v in origin]
+    if has_input:state['model_reference']['origin_input_mm']=origin
+    def load(source_id,*,axis,origin):
+        return dict(model_id=digest(json.dumps([MODEL_ENGINE,source_id,axis,origin],sort_keys=True).encode()),origin_input_mm=origin)
+    monkeypatch.setattr(models,'load',load)
     store.add_file(state,path,'single_nozzle.step');store.publish(state);store.designs.models=models
     restored=store.restore_source(key)
     assert restored['source']['source_id']==source_id
     assert models.catalog()[0]['default_axis']=='z'
     assert restored['source']['default_origin_mm']==origin
+    assert json.dumps(restored['source']['default_origin_mm'])==json.dumps(origin)
+    assert restored['model']['model_id']==model_id

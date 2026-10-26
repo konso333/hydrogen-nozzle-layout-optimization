@@ -106,6 +106,13 @@ def test_inconsistent_saved_fluent_data_rejects_report(tmp_path,kind):
         verify_saved_fluxes(tmp_path,point)
 
 
+def test_saved_species_failure_reports_actual_deviation_without_changing_limit(tmp_path):
+    import h5py
+    point=saved_hdf_pair(tmp_path)
+    with h5py.File(tmp_path/'final.dat.h5','r+') as data:data['results/1/phase-1/cells/SV_Y/1'][0]=[.99999998,0,0,0]
+    with pytest.raises(ValueError,match='最大偏差 .*门限 1e-8'):verify_saved_fluxes(tmp_path,point)
+
+
 def test_exact_tetra_volume_handedness_and_complete_export(tmp_path):
     points,cells,boundaries=tetra()
     faces,c0,c1,labels,report=face_topology(points,cells,boundaries)

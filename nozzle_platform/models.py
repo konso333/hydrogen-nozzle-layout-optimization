@@ -126,7 +126,7 @@ class ModelStore:
                 return self.models[key]
         metadata = self.cad({"operation": "preview", "source": str(self.root / (source_id + ".step")),
                              "axis": axis, "origin": origin, "source_unit": source["source_unit"]})
-        model = {**source, **metadata, "model_id": key,"model_engine":MODEL_ENGINE}
+        model = {**source, **metadata, "model_id": key,"model_engine":MODEL_ENGINE,"origin_input_mm":list(origin) if origin is not None else None}
         with self.lock:
             self.models[key] = model
         (self.root / (key + ".json")).write_text(json.dumps(model, ensure_ascii=False), encoding="utf-8")

@@ -11,6 +11,7 @@ function availability(){
   domainAvailability();
   simulationAvailability();
   pipelineAvailability();
+  presetAvailability();
 }
 function busy(on,text="处理中…"){state.busy=on;$("busy-overlay").hidden=!on;$("busy-text").textContent=text;availability();}
 async function api(path,body,headers={}){
@@ -44,6 +45,16 @@ function invalidateModel(){
   if(state.viewer){state.viewer.model=null;state.viewer.draw();}
   $("viewer-status").textContent="等待载入模型";availability();notice("请载入所选模型，再生成阵列。","neutral");
 }
+function installModel(model){
+  state.model=model;["origin-x","origin-y","origin-z"].forEach((id,i)=>{$(id).value=model.origin_mm[i];});
+  $("diameter").value=model.envelope_diameter_mm;$("diameter").min=model.envelope_diameter_mm;
+  $("upstream-z").value=Number(model.bounds_mm[0][2].toFixed(4));
+  $("spacing").value=model.envelope_diameter_mm+Number($("gap").value);
+  $("model-state").textContent="已载入";$("model-state").className="tag ready";
+  $("model-info").textContent=`${model.label} · ${model.solid_count} 个实体 · 整体包络 Ø${fmt(model.envelope_diameter_mm)} mm · 原单位 ${model.source_unit}`;
+  $("empty-state").hidden=true;state.viewer?.setModel(model);$("viewer-status").textContent="真实模型已载入 · 等待生成";
+  $("view-subtitle").textContent=`真实 CAD 曲面 · 原轴线 ${model.axis.toUpperCase()} → 阵列 +Z · mm`;
+}
 async function loadModel(){
   if(!$("model-select").value){notice("请先导入一个 STEP 模型。","error");return;}
   invalidateModel();busy(true,"正在读取真实 CAD 曲面…");
@@ -53,14 +64,7 @@ async function loadModel(){
     const origin=fields.every(v=>v!=="")?fields.map(Number):null;
     if(origin&&origin.some(v=>!Number.isFinite(v)))throw new Error("安装原点必须为有限数值。");
     const model=await api("/api/load-model",{source_id:$("model-select").value,axis:$("axis").value,origin});
-    state.model=model;["origin-x","origin-y","origin-z"].forEach((id,i)=>{$(id).value=model.origin_mm[i];});
-    $("diameter").value=model.envelope_diameter_mm;$("diameter").min=model.envelope_diameter_mm;
-    $("upstream-z").value=Number(model.bounds_mm[0][2].toFixed(4));
-    $("spacing").value=model.envelope_diameter_mm+Number($("gap").value);
-    $("model-state").textContent="已载入";$("model-state").className="tag ready";
-    $("model-info").textContent=`${model.label} · ${model.solid_count} 个实体 · 整体包络 Ø${fmt(model.envelope_diameter_mm)} mm · 原单位 ${model.source_unit}`;
-    $("empty-state").hidden=true;state.viewer?.setModel(model);$("viewer-status").textContent="真实模型已载入 · 等待生成";
-    $("view-subtitle").textContent=`真实 CAD 曲面 · 原轴线 ${model.axis.toUpperCase()} → 阵列 +Z · mm`;
+    installModel(model);
     notice(origin?"模型已载入。核对参数后可点击「一键运行」，也可先生成阵列预览。":"模型已载入。安装原点按包围盒估计，请先在「轴线与安装参考点」中核对。",origin?"":"neutral");
   }catch(error){notice(error.message,"error");}finally{busy(false);}
 }
@@ -150,6 +154,7 @@ async function init(){
   initializeDomains();
   initializeSimulation();
   initializePipeline();
-  try{const response=await fetch("/api/bootstrap"),data=await response.json();state.sources=data.models;$("solver-capability").textContent=data.workflow.note;state.fluentAvailable=data.workflow.fluent_available;if(data.workflow.preferred_compute_device==="gpu")selectGpuValidation();sourceOptions();setSourceReference();if(state.sources.length)await loadModel();else notice("导入单喷嘴 STEP，即可开始设计。","neutral");await refreshPipelineHistory();}catch(error){notice(error.message,"error");}
+  initializePresets();
+  try{const response=await fetch("/api/bootstrap"),data=await response.json();state.sources=data.models;$("solver-capability").textContent=data.workflow.note;state.fluentAvailable=data.workflow.fluent_available;if(data.workflow.preferred_compute_device==="gpu")selectGpuValidation();sourceOptions();setSourceReference();if(state.sources.length)await loadModel();else notice("导入单喷嘴 STEP，即可开始设计。","neutral");await refreshPresets();await refreshPipelineHistory();}catch(error){notice(error.message,"error");}
 }
 init();

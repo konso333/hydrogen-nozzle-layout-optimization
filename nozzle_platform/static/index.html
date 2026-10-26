@@ -7,7 +7,8 @@
   <link rel="stylesheet" href="/domain.css">
   <link rel="stylesheet" href="/simulation.css">
   <link rel="stylesheet" href="/pipeline.css">
-  <script src="/viewer.js" defer></script><script src="/domain.js" defer></script><script src="/simulation.js" defer></script><script src="/study.js" defer></script><script src="/pipeline.js" defer></script><script src="/app.js" defer></script>
+  <link rel="stylesheet" href="/presets.css">
+  <script src="/viewer.js" defer></script><script src="/domain.js" defer></script><script src="/simulation.js" defer></script><script src="/study.js" defer></script><script src="/pipeline.js" defer></script><script src="/presets.js" defer></script><script src="/app.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -29,6 +30,17 @@
             <label for="axis">原模型的正向轴线</label><select id="axis"><option value="x">+X</option><option value="y" selected>+Y</option><option value="z">+Z</option></select>
             <p class="hint">转换后喷嘴沿阵列 +Z。原点单位统一为 mm；留空时按包围盒估计，需自行核对。</p>
             <div class="three-fields"><label>X<input id="origin-x" type="number" step="any" placeholder="自动"></label><label>Y<input id="origin-y" type="number" step="any" placeholder="自动"></label><label>Z<input id="origin-z" type="number" step="any" placeholder="自动"></label></div>
+          </details>
+          <details id="preset-details" class="preset-box" open><summary>工况预设与配置检查</summary>
+            <label for="preset-select">已保存的整套配置</label><select id="preset-select"><option value="">暂无预设</option></select>
+            <button id="preset-load" type="button" class="button secondary">载入所选预设</button>
+            <p class="hint" id="preset-note">预设绑定具体 STEP 和参考坐标。载入只填入参数，不启动求解；供气模板需重新确认。</p>
+            <details><summary>保存与备份</summary><label for="preset-name">新预设名称</label><input id="preset-name" type="text" maxlength="60" placeholder="例如：B0 双喷嘴冷流">
+              <button id="preset-save" type="button" class="button secondary">保存当前整套参数</button>
+              <div class="preset-actions"><button id="preset-export" type="button" class="button secondary">导出参数 JSON</button><button id="preset-import" type="button" class="button secondary">导入参数 JSON</button></div>
+              <input id="preset-file" type="file" accept=".json,application/json" hidden><p class="hint">参数 JSON 不包含实体；在另一台电脑使用时，先导入相同的 STEP。</p>
+            </details>
+            <button id="preset-check" type="button" class="button dark">检查参数与资源</button><div id="preset-check-result" role="status" hidden></div>
           </details>
         </section>
         <section class="form-section">

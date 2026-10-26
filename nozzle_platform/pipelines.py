@@ -13,7 +13,7 @@ import uuid
 import zipfile
 
 from nozzle_platform.workflows import normalize_mesh,normalize_flow,save,sha256,ROOT,IMPLEMENTATION
-from nozzle_platform.domains import FIELDS as DOMAIN_FIELDS
+from nozzle_platform.domains import FIELDS as DOMAIN_FIELDS,normalize as normalize_domain
 from nozzle_platform.design import layout_svg
 from validation import require_count,require_finite
 
@@ -21,7 +21,7 @@ STAGES=('design','assembly','domain','mesh','flow','maps')
 FAMILIES={'rectangular','honeycomb','sunflower','ring'}
 class ResourcesUnavailable(ValueError):pass
 SOURCES=tuple(dict.fromkeys(IMPLEMENTATION+('nozzle_platform/pipelines.py','nozzle_platform/bounded.py',
-    'nozzle_platform/field_maps.py','nozzle_platform/design.py','nozzle_platform/domains.py','nozzle_platform/models.py')))
+    'nozzle_platform/field_maps.py','nozzle_platform/design.py','nozzle_platform/domains.py','nozzle_platform/models.py','nozzle_platform/presets.py')))
 
 
 def normalize(request):
@@ -101,7 +101,42 @@ class PipelineStore:
 
     def catalog(self):
         with self.workflows.lock:
-            return [dict(job_id=key,status=self.workflows.jobs[key]['status'],message=self.workflows.jobs[key]['message']) for key in reversed(self.folders)]
+            ordered=sorted(self.folders,key=lambda key:self.workflows.jobs[key].get('started_at',0),reverse=True)
+            return [dict(job_id=key,status=self.workflows.jobs[key]['status'],message=self.workflows.jobs[key]['message']) for key in ordered]
+
+    def preflight(self,request):
+        """Parameter/resource checks only; CAD ports, licence and fields remain pending."""
+        import psutil
+        with self.workflows.lock:
+            if self.workflows.active or self.workflows.reservation:raise ValueError('已有本机任务运行，请结束后再检查其他配置。')
+        original=copy.deepcopy(request)
+        if not isinstance(original,dict) or not isinstance(original.get('domain'),dict) or type(original['domain'].get('template_confirmed')) is not bool:
+            raise ValueError('请提供完整参数和供气模板确认状态。')
+        confirmed=original['domain']['template_confirmed'];original['domain']['template_confirmed']=True
+        config=normalize(original);model=self.designs.models.get(config['design']['model_id'])
+        source=self.designs.models.root/(model['source_id']+'.step')
+        if not source.is_file() or sha256(source)!=model['source_id']:raise ValueError('当前模型文件缺失或哈希改变，请重新导入。')
+        rows=[]
+        for i,case in enumerate(config['cases'],1):
+            row=dict(index=i,**case,parameters_valid=False,geometry_verified=False)
+            try:
+                scheme=self.designs.create(dict(config['design'],**case))
+                if not scheme['feasible']:raise ValueError(scheme['message'])
+                normalize_domain(dict(config['domain'],scheme_id=scheme['scheme_id']),scheme,model)
+                row.update(parameters_valid=True,message='阵列包络及腔体／入口参数检查通过；实际流道与入口数量将在 CAD 阶段核查。',
+                    expected_oxidizer_ports=case['N']*config['domain']['oxidizer_ports_per_nozzle'],
+                    expected_fuel_ports=case['N']*config['domain']['fuel_ports_per_nozzle'])
+            except (ValueError,TypeError,KeyError) as error:row['message']=str(error)
+            rows.append(row)
+        memory=psutil.virtual_memory().available/1024**3;disk=shutil.disk_usage(self.root).free/1024**3
+        capability=self.workflows.capability();ready=memory>=4 and disk>=5 and capability['fluent_available']
+        return dict(cases=rows,parameters_valid=all(r['parameters_valid'] for r in rows),template_confirmed=confirmed,
+            resources=dict(available_memory_GiB=memory,minimum_memory_GiB=4,output_disk_free_GiB=disk,minimum_disk_GiB=5,
+                           fluent_available=capability['fluent_available'],ready=ready),
+            ready_for_cad=all(r['parameters_valid'] for r in rows) and ready and confirmed,
+            pending_checks=['实际 CAD 流道连通与入口数量','实际网格规模、单元与边界质量','启动时许可证及显存','求解与保存场核对'],
+            note='本次未启动 CAD、网格或 Fluent。资源为当前快照，启动时重新检查；预检不保证几何、许可证、收敛或保存场通过。',
+            source_sha256=model['source_id'],scientific_eligible=False)
 
     def status(self,key):
         if key not in self.folders:raise ValueError('找不到一键运行记录。')
@@ -175,15 +210,27 @@ class PipelineStore:
                 time.sleep(.1)
             else:cancel.wait(.3)
         if task['status']!='completed':
-            folder=self.workflows.root/(stage+'_'+child['job_id'])
-            for source,suffix in [('worker.log','worker.txt'),('fluent.trn','fluent.txt'),('mesh_quality.json','mesh_quality.json'),('quality_history.json','quality_history.json'),('partial.json','partial.json')]:
-                path=folder/source
-                if path.is_file():self.add_file(state,path,f"case{row['index']}_{stage}_{suffix}")
             row['diagnostics']=task.get('diagnostics',{});row['error_code']=task.get('error_code','worker_failed')
+            count=row['diagnostics'].get('iterations_completed')
+            if type(count) is int and count>=0:row['iterations']=count
+            self.diagnostic_files(state,row,stage,child['job_id'])
             if cancel.is_set():raise InterruptedError('已停止一键任务，子任务进程已清理。')
             raise ValueError(task['message'])
         if cancel.is_set():raise InterruptedError('已停止一键任务，子任务进程已清理。')
         return task['result']
+
+    def diagnostic_files(self,state,row,stage,child_id):
+        """Keep failed/stopped raw data separate from accepted case/data exports."""
+        if stage not in ('mesh','flow') or not isinstance(child_id,str) or not re.fullmatch('[0-9a-f]{32}',child_id):return []
+        folder=self.workflows.root/(stage+'_'+child_id);added=[]
+        standard=[('worker.log','worker.txt'),('fluent.trn','fluent.txt'),('mesh_quality.json','mesh_quality.json'),('quality_history.json','quality_history.json'),('partial.json','partial.json')]
+        unverified=[(n,n) for n in ['final.cas.h5','final.dat.h5','configured.json','execution_profile.json','device_evidence.json','cleanup.json']]
+        for group,prefix in [(standard,f"case{row['index']}_{stage}_"),(unverified,f"case{row['index']}_unverified_{stage}_")]:
+            for source,suffix in group:
+                path=folder/source;name=prefix+suffix
+                if path.is_file() and name not in state['files']:
+                    self.add_file(state,path,name);added.append(name)
+        return added
 
     def post(self,state,row,spec,cancel,suffix):
         from nozzle_platform.bounded import run
@@ -351,6 +398,16 @@ class PipelineStore:
             if 'results.zip' in state['files']:
                 self.file(key,'results.zip')
             else:
+                added=[]
+                for row in state['cases']:
+                    stage=row.get('stage');child=row.get(str(stage)+'_job_id')
+                    if row['status'] in ('failed','cancelled') and child:added.extend(self.diagnostic_files(state,row,stage,child))
+                if any('_unverified_' in n for n in state['files']):
+                    notice=self.folders[key]/'diagnostic_README.txt'
+                    if 'diagnostic_README.txt' not in state['files']:
+                        notice.write_text('未通过验收的原始文件\n名称含 unverified 的 case/data、设置和记录仅用于失败或中断诊断，不表示数据正确、收敛或可用于方案优选。\n原失败状态和原始记录保留，不自动生成成功场图，不修补或归一化保存数据。成对 final.cas.h5／final.dat.h5 可供人工诊断读取。\n',encoding='utf-8')
+                        self.add_file(state,notice,'diagnostic_README.txt')
+                if added or 'diagnostic_README.txt' in state['files']:self.publish(state)
                 output=self.folders[key]/'results.zip';started=time.monotonic()
                 with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED,compresslevel=1) as bundle:
                     manifest={}
@@ -374,9 +431,20 @@ class PipelineStore:
         path=self.file(key,'single_nozzle.step')
         if sha256(path)!=ref['source_id']:raise ValueError('模型来源与任务快照不一致。')
         auto=digest(json.dumps([ref.get('model_engine',MODEL_ENGINE),ref['source_id'],ref['axis'],None],sort_keys=True).encode())
-        origin=None if auto==ref['model_id'] else ref['origin_mm']
+        origin=ref['origin_input_mm'] if 'origin_input_mm' in ref else None if auto==ref['model_id'] else ref['origin_mm']
+        if 'origin_input_mm' not in ref and origin is not None:
+            # Old CAD metadata converted integral coordinates to floats. Recover
+            # their exact input representation only when its saved ID matches.
+            from itertools import product
+            options=[[v,int(v)] if type(v) is float and v.is_integer() else [v] for v in origin]
+            for candidate in product(*options):
+                candidate=list(candidate)
+                if digest(json.dumps([MODEL_ENGINE,ref['source_id'],ref['axis'],candidate],sort_keys=True).encode())==ref['model_id']:
+                    origin=candidate;break
         source=self.designs.models.add_source(ref.get('name','single_nozzle.step'),path.read_bytes(),
             label=ref.get('label'),origin=origin,archive_hash=ref.get('archive_sha256'))
         with self.designs.models.lock:
             self.designs.models.sources[source['source_id']]['default_axis']=ref['axis']
-        return dict(source=source,models=self.designs.models.catalog())
+        model=self.designs.models.load(source['source_id'],axis=ref['axis'],origin=origin)
+        if model['model_id']!=ref['model_id']:raise ValueError('历史模型参考坐标未能精确恢复，仍可下载原始装配与查看保存场图。')
+        return dict(source=source,models=self.designs.models.catalog(),model=model)
