@@ -21,9 +21,12 @@ def models(root):
 
 
 @pytest.mark.parametrize('origin',[None,[0,0,0],[0.,0.,0.]])
-def test_preset_survives_restart_and_preserves_original_reference_types(tmp_path,origin):
+@pytest.mark.parametrize('profile',[None,'strict-linear'])
+def test_preset_survives_restart_and_preserves_original_reference_types(tmp_path,origin,profile):
     m=models(tmp_path/'models');source=m.add_source('fixture.step',RAW);model=m.load(source['source_id'],axis='z',origin=origin)
-    config=request();config['design']['model_id']=model['model_id'];original=copy.deepcopy(config)
+    config=request();config['design']['model_id']=model['model_id']
+    if profile:config['flow']['species_solver_control']=profile
+    original=copy.deepcopy(config)
     presets=PresetStore(tmp_path/'presets',m);saved=presets.store('整套冷流',config)
     assert config==original and len(m.calls)==1,'Saving settings must not run CAD'
     fresh=models(tmp_path/'new_models');restored=PresetStore(presets.root,fresh).load(saved['preset_id'])
@@ -31,6 +34,7 @@ def test_preset_survives_restart_and_preserves_original_reference_types(tmp_path
     assert restored['model']['axis']=='z' and restored['model']['origin_input_mm']==origin
     assert restored['request']['domain']['template_confirmed'] is False
     assert restored['request']['flow']['compute_device']=='gpu'
+    assert restored['request']['flow'].get('species_solver_control')==profile
     assert restored['request']['mesh']['min_size_mm']==config['mesh']['min_size_mm']
     assert restored['preset']['scientific_eligible'] is False
 

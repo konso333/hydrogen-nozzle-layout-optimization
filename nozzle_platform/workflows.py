@@ -23,12 +23,12 @@ MESH_OPTIONS = {'algorithm','curvature_samples','passage_size_mm','size_factor',
     'mesh_method','layer_first_height_mm','layer_count','layer_thickness_mm','local_volume_refinement'}
 FLOW_KEYS = {'mesh_id','domain_id','scheme_id','fuel_velocity_m_s','oxidizer_velocity_m_s',
              'temperature_K','oxidizer_o2_mass_fraction','iterations'}
-FLOW_OPTIONS = {'convergence_mode','time_budget_seconds','compute_device','transport_model'}
+FLOW_OPTIONS = {'convergence_mode','time_budget_seconds','compute_device','transport_model','species_solver_control'}
 IMPLEMENTATION = ('nozzle_platform/workflows.py','nozzle_platform/workflow_worker.py',
     'nozzle_platform/volume_mesh.py','nozzle_platform/layered_mesh.py','nozzle_platform/poly_mesh.py','nozzle_platform/domain_cad.py','nozzle_platform/flow_solver.py',
     'nozzle_platform/flow_validation.py','nozzle_platform/mesh_quality.py','nozzle_platform/convergence.py','nozzle_platform/mesh_study.py','nozzle_platform/grid_convergence.py','nozzle_platform/field_profiles.py',
     'nozzle_platform/probe_points.py','nozzle_platform/outlet_sampling.py',
-    'nozzle_platform/solver_device.py','coldflow_trial/solver.py','coldflow_trial/processes.py',
+    'nozzle_platform/solver_device.py','nozzle_platform/species_controls.py','nozzle_platform/field_health.py','coldflow_trial/solver.py','coldflow_trial/processes.py',
     'fluent_execution/process.py')
 
 
@@ -120,6 +120,8 @@ def normalize_flow(request):
         raise ValueError('冷流收敛模式无效。')
     from nozzle_platform.solver_device import validate_selection
     validate_selection(result)
+    from nozzle_platform.species_controls import selection
+    selection(result)
     if mode=='gpu-validation':
         maximum=100 if result.get('compute_device')=='gpu' else 25
         if result['iterations']>maximum:raise ValueError(f'接入验证最多 {maximum} 步，不用于正式收敛判断。')
@@ -314,6 +316,7 @@ class WorkflowStore:
                 if kind=='flow' and payload['config'].get('convergence_mode')=='gpu-validation':
                     names.append('execution_profile.json')
                     if payload['config'].get('compute_device')=='gpu':names.append('device_evidence.json')
+                if kind=='flow':names.extend(['field_health.json','species_controls.json'])
                 result.update(kind=kind,result_id=job_id,**{k:payload['config'][k] for k in ('domain_id','scheme_id')},
                     elapsed_seconds=time.monotonic()-started,
                     config=payload['config'],source_sha256=payload['domain']['source_sha256'],

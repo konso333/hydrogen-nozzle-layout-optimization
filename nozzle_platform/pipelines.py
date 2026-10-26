@@ -224,7 +224,7 @@ class PipelineStore:
         if stage not in ('mesh','flow') or not isinstance(child_id,str) or not re.fullmatch('[0-9a-f]{32}',child_id):return []
         folder=self.workflows.root/(stage+'_'+child_id);added=[]
         standard=[('worker.log','worker.txt'),('fluent.trn','fluent.txt'),('mesh_quality.json','mesh_quality.json'),('quality_history.json','quality_history.json'),('partial.json','partial.json')]
-        unverified=[(n,n) for n in ['final.cas.h5','final.dat.h5','configured.json','execution_profile.json','device_evidence.json','cleanup.json']]
+        unverified=[(n,n) for n in ['final.cas.h5','final.dat.h5','configured.json','execution_profile.json','device_evidence.json','cleanup.json','field_health.json','species_controls.json']]
         for group,prefix in [(standard,f"case{row['index']}_{stage}_"),(unverified,f"case{row['index']}_unverified_{stage}_")]:
             for source,suffix in group:
                 path=folder/source;name=prefix+suffix

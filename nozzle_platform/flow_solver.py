@@ -15,6 +15,7 @@ from nozzle_platform.flow_validation import case_openings, case_volume, verify_s
 from nozzle_platform.mesh_quality import condition_mesh
 from nozzle_platform.convergence import CRITERIA, VERIFICATION_CRITERIA, BLOCK_SIZE, checks, assessment
 from nozzle_platform.solver_device import launch, validate_selection, configure_transport, verify_transport, save_validation_data, GPU_MODE
+from nozzle_platform import species_controls,field_health
 
 
 def quality_from_transcript(path):
@@ -122,6 +123,7 @@ def run(payload, directory):
             require(all(schemes[name]==spatial_scheme for name in ('mom','temperature','species-0','species-1','species-2')),
                     'Fluent 实际离散格式与当前验证模式不一致。')
             require(schemes['pressure']==('second-order' if verification or diagnostic else 'standard'),'Fluent 压力离散格式不一致。')
+        species_controls.apply(session,config)
         configured = snapshot(session)
         verify_physics(configured,settings,laminar=True)
         verify_transport(configured,config)
@@ -139,6 +141,9 @@ def run(payload, directory):
             monitor.equations[name].monitor = True
             monitor.equations[name].check_convergence = False
         session.settings.file.write_case(file_name='configured.cas.h5')
+        solver_controls=species_controls.saved(directory/'configured.cas.h5',config)
+        save(directory/'species_controls.json',solver_controls)
+        state['species_solver_controls']=solver_controls
         with h5py.File(directory/'configured.cas.h5','r') as case:
             points = case['meshes/1/nodes/coords/1'][()]
             topology=case['meshes/1/cells/zoneTopology']
@@ -191,6 +196,7 @@ def run(payload, directory):
                 warped_face_gradient_correction=False,residual_scaling='local',
                 original_transport_model='ideal-gas-mixing-law',iterations=config['iterations'],
                 case_write_strategy='reuse_static_configured_case_after_settings_check',
+                species_solver_controls=solver_controls,
                 initialization='fresh hybrid initialization',iteration_wall_seconds=[])
             if device=='gpu':
                 transcript=(directory/'fluent.trn').read_text(encoding='utf-8',errors='replace')
@@ -262,6 +268,11 @@ def run(payload, directory):
         verify_physics(final_settings,settings,laminar=True)
         verify_transport(final_settings,config)
         verify_methods(final_settings)
+        species_controls.verify_live(session,solver_controls)
+        health=field_health.inspect(directory)
+        save(directory/'field_health.json',health)
+        state['field_health']=health
+        field_health.require_healthy(health)
         state['saved_data_crosscheck'] = verify_saved_fluxes(directory,state['history'][-1])
         if verification:
             save(directory/'outlet_profile.json',state['outlet_profile'])

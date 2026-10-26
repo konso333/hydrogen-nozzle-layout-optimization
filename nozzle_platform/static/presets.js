@@ -19,6 +19,7 @@ function presetValue(id,value){
  if(input.type==="checkbox")input.checked=!!value;else input.value=value;
 }
 function applyPreset(request){
+ presetValue("flow-species-control",request.flow.species_solver_control||"standard");
  const maps={design:{N:"count",family:"family",region:"region",radius_mm:"radius",start_angle_deg:"start-angle",sweep_angle_deg:"sweep-angle",diameter_mm:"diameter",edge_gap_mm:"gap",wall_clearance_mm:"wall",spacing_mode:"spacing-mode",spacing_mm:"spacing",rotation_deg:"rotation"},
  domain:{boundary_template:"domain-template",chamber_radius_mm:"chamber-radius",chamber_length_mm:"chamber-length",chamber_start_z_mm:"chamber-start",passage_radius_mm:"passage-radius",upstream_z_mm:"upstream-z",fuel_z_mm:"fuel-z",fuel_half_band_mm:"fuel-band",oxidizer_ports_per_nozzle:"air-ports",fuel_ports_per_nozzle:"fuel-ports"},
  mesh:{mesh_method:"mesh-method",min_size_mm:"mesh-min",max_size_mm:"mesh-max",inlet_size_mm:"mesh-inlet",refine_distance_mm:"mesh-distance",algorithm:"mesh-algorithm",curvature_samples:"mesh-curvature",passage_size_mm:"mesh-passage",size_factor:"mesh-factor",cell_budget:"mesh-budget",layer_first_height_mm:"mesh-layer-first",layer_count:"mesh-layer-count",layer_thickness_mm:"mesh-layer-total",local_volume_refinement:"mesh-local-volume"},
