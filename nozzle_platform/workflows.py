@@ -28,7 +28,7 @@ IMPLEMENTATION = ('nozzle_platform/workflows.py','nozzle_platform/workflow_worke
     'nozzle_platform/volume_mesh.py','nozzle_platform/layered_mesh.py','nozzle_platform/poly_mesh.py','nozzle_platform/domain_cad.py','nozzle_platform/flow_solver.py',
     'nozzle_platform/flow_validation.py','nozzle_platform/mesh_quality.py','nozzle_platform/convergence.py','nozzle_platform/mesh_study.py','nozzle_platform/grid_convergence.py','nozzle_platform/field_profiles.py',
     'nozzle_platform/probe_points.py','nozzle_platform/outlet_sampling.py',
-    'nozzle_platform/solver_device.py','nozzle_platform/species_controls.py','nozzle_platform/field_health.py','coldflow_trial/solver.py','coldflow_trial/processes.py',
+    'nozzle_platform/solver_device.py','nozzle_platform/species_controls.py','nozzle_platform/field_health.py','nozzle_platform/restart_check.py','nozzle_platform/restart_worker.py','coldflow_trial/solver.py','coldflow_trial/processes.py',
     'fluent_execution/process.py')
 
 

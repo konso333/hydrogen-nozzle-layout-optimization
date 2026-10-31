@@ -32,6 +32,11 @@ function displayPipeline(task){
   const card=pipelineNode("div",undefined,"pipeline-case");card.append(pipelineNode("strong",`方案 ${row.index} · N=${row.N} · ${familyNames[row.family]}`));const list=pipelineNode("div",undefined,"pipeline-stage-list");
   for(const stage of row.stages){const box=pipelineNode("div",undefined,"pipeline-stage "+stage.status);box.append(pipelineNode("b",pipelineStageNames[stage.name]),pipelineNode("span",stage.message));list.append(box);}card.append(list);
   if(/许可证|license/i.test(row.error||""))card.append(pipelineNode("p","许可恢复：若使用本机 PLE 且在休眠后失效，请在任务管理器的服务页重启对应许可服务。Fluent 2025 R2 对应 Ansys PLE Licensing 2025 R2，可能需要 Windows 管理员权限；学校网络许可请检查已配置的服务器。恢复后可载入预设重新运行，原失败记录保留。","pipeline-recovery"));
+  if(row.restart_message)card.append(pipelineNode("p",row.restart_message,"pipeline-recovery"));
+  if(!running&&["failed","completed_with_failures"].includes(task.status)&&task.cases.length===1&&row.stage==="flow"&&row.mesh_id&&!row.flow_job_id&&(row.resource_gate_stopped_before_solver||/^(可用内存不足 4 GiB|输出磁盘可用空间不足 5 GiB)/.test(row.error||""))){
+   const resume=pipelineNode("button","复用此网格继续 ↗","button secondary");resume.type="button";resume.disabled=state.busy;
+   resume.addEventListener("click",async()=>{if(state.busy)return;try{state.busy=true;availability();const next=await api("/api/pipeline-from-mesh",{job_id:task.job_id});state.job=next.job_id;await refreshPipelineHistory(next.job_id);}catch(e){state.busy=false;availability();notice(e.message,"error");}});card.append(resume);
+  }
   $("pipeline-stages").append(card);
   const tr=pipelineNode("tr");for(const v of [row.index,`${row.N} / ${familyNames[row.family]}`,fmt(row.installation_area_mm2,2),fmt(row.actual_fuel_heat_input_kW,6),fmt(row.actual_air_mass_flow_kg_s,8),fmt(row.pressure_drop_Pa?.fuel_inlet,5),fmt(row.pressure_drop_Pa?.oxidizer_inlet,5),pipelineStatusNames[row.status]||row.status])tr.append(pipelineNode("td",v));
   const view=pipelineNode("td"),button=pipelineNode("button","载入装配");button.type="button";button.disabled=!row.scheme_id||running;button.addEventListener("click",()=>showPipelineAssembly(row.index));view.append(button);tr.append(view);$("pipeline-rows").append(tr);

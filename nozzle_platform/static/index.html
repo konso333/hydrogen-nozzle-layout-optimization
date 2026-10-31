@@ -122,8 +122,8 @@
             <label for="flow-transport">混合物黏度与导热率</label><select id="flow-transport"><option value="ideal-gas-mixing-law">原模型 · 理想气体混合律</option><option value="mass-weighted-mixing-law">接入验证 · 质量加权混合律</option></select>
             <p class="hint" id="flow-device-note">CPU 使用原模型物性。GPU 暂开放短测，失败不会转用 CPU。</p>
             <details><summary>GPU 组分诊断设置（实验）</summary>
-            <label for="flow-species-control">组分求解设置</label><select id="flow-species-control"><option value="standard">标准设置</option><option value="strict-linear">线性加强（尚未通过验收）</option></select>
-            <p class="hint">仅供诊断：本机双喷嘴 100 步仍未通过组分门限。保留原松弛因子与物性，默认关闭。</p>
+            <label for="flow-species-control">组分求解设置</label><select id="flow-species-control"><option value="standard">标准设置</option><option value="strict-linear">线性加强（尚未通过验收）</option><option value="strict-absolute">严格绝对容差（GPU 短测实验）</option></select>
+            <p class="hint">实验默认关闭。严格绝对容差保留松弛因子和物性，另收紧全局绝对线性容差；保存场、文件可读取、重读保持和收敛分别核查。</p>
             </details>
             <div class="two-fields"><div><label for="flow-fuel">氢气入口速度 / m/s</label><input id="flow-fuel" type="number" value="1" min="0.001" max="100" step="any" required></div><div><label for="flow-air">空气入口速度 / m/s</label><input id="flow-air" type="number" value="1" min="0.001" max="100" step="any" required></div></div>
             <div class="two-fields"><div><label for="flow-temperature">入口温度 / K</label><input id="flow-temperature" type="number" value="300" min="200" max="600" step="any" required></div><div><label for="flow-iterations">最多计算步数</label><input id="flow-iterations" type="number" value="500" min="1" max="500" step="1" required></div></div>

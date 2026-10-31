@@ -170,6 +170,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/generate":
                 return self.json(self.server.designs.create(data))
             if path=='/api/pipeline':return self.json(self.server.pipelines.start(data),202)
+            if path=='/api/pipeline-from-mesh':
+                if set(data)!={'job_id'}:raise ValueError('网格复用仅接受原任务编号，参数沿用其快照。')
+                return self.json(self.server.pipelines.start_from_mesh(data['job_id']),202)
             if path=='/api/pipeline-export':return self.json(self.server.pipelines.export(data.get('job_id')))
             if path=='/api/pipeline-source':return self.json(self.server.pipelines.restore_source(data.get('job_id')))
             if path=='/api/pipeline-check':return self.json(self.server.pipelines.preflight(data))

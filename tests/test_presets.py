@@ -21,7 +21,7 @@ def models(root):
 
 
 @pytest.mark.parametrize('origin',[None,[0,0,0],[0.,0.,0.]])
-@pytest.mark.parametrize('profile',[None,'strict-linear'])
+@pytest.mark.parametrize('profile',[None,'strict-linear','strict-absolute'])
 def test_preset_survives_restart_and_preserves_original_reference_types(tmp_path,origin,profile):
     m=models(tmp_path/'models');source=m.add_source('fixture.step',RAW);model=m.load(source['source_id'],axis='z',origin=origin)
     config=request();config['design']['model_id']=model['model_id']

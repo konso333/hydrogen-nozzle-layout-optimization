@@ -156,11 +156,69 @@ class PipelineStore:
 
     def add_file(self,state,path,name,digest=None):
         path=Path(path).resolve()
-        if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]*\.(json|csv|png|svg|step|brep|geo|msh|npz|txt|md|zip|h5|trn)',name) or '..' in name:raise ValueError('结果文件名无效。')
+        if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]*\.(json|csv|png|svg|step|brep|geo|msh|npz|txt|md|zip|h5|trn|jou)',name) or '..' in name:raise ValueError('结果文件名无效。')
         if not path.is_relative_to(self.output_root):raise ValueError('结果路径超出本机项目目录。')
         state['files'][name]=dict(path=str(path.relative_to(self.output_root)),sha256=digest or sha256(path),bytes=path.stat().st_size)
 
-    def start(self,request):
+    def start_from_mesh(self,key):
+        old=self.status(key)
+        if old['status'] not in {'failed','completed_with_failures'} or len(old['cases'])!=1:
+            raise ValueError('仅支持单方案在冷流启动前中断后复用已检查网格。')
+        row=old['cases'][0]
+        if row.get('stage')!='flow' or not row.get('mesh_id') or row.get('flow_job_id'):
+            raise ValueError('该任务不满足冷流启动前网格复用条件；已启动的求解不自动重算。')
+        legacy_resource_error=str(row.get('error','')).startswith(('可用内存不足 4 GiB','输出磁盘可用空间不足 5 GiB'))
+        if not row.get('resource_gate_stopped_before_solver') and not legacy_resource_error:
+            raise ValueError('仅对明确在求解启动前被资源门限停止的任务复用网格。')
+        self.resources();self.file(key,'single_nozzle.step')
+        if self.workflows.active or self.workflows.reservation:raise ValueError('已有本机任务正在运行。')
+        if row['mesh_id'] not in self.workflows.results:self.restore_mesh_record(key,old,row)
+        mesh,_=self.workflows.get_result(row['mesh_id'],row['domain_id'],row['scheme_id'],'mesh')
+        if mesh.get('implementation_sha256')!={n:sha256(ROOT/n) for n in IMPLEMENTATION}:
+            raise ValueError('网格程序版本已变化，不能复用该历史网格。')
+        request={k:copy.deepcopy(v) for k,v in old['config'].items() if k!='cases'}
+        return self.start(request,reuse_mesh=dict(source_job_id=key,mesh_id=row['mesh_id'],domain_id=row['domain_id'],scheme_id=row['scheme_id']))
+
+    def restore_mesh_record(self,key,old,row):
+        """Restore only this lineage-bound completed mesh, never an active solver."""
+        mid=row['mesh_id']
+        if not isinstance(mid,str) or not re.fullmatch('[0-9a-f]{32}',mid):raise ValueError('历史网格编号无效。')
+        folder=self.workflows.root/('mesh_'+mid)
+        report=json.loads((folder/'report.json').read_text(encoding='utf-8'))
+        job=json.loads((folder/'job.json').read_text(encoding='utf-8'))
+        expected=dict(old['config']['mesh'],domain_id=row['domain_id'],scheme_id=row['scheme_id'])
+        current={n:sha256(ROOT/n) for n in IMPLEMENTATION}
+        if (report.get('kind')!='mesh' or report.get('result_id')!=mid or report.get('config')!=expected
+                or job.get('kind')!='mesh' or job.get('config')!=expected
+                or report.get('implementation_sha256')!=current or job.get('implementation_sha256')!=current
+                or report.get('engine')!=job.get('engine') or job.get('engine')!='mesh-flow-1'):
+            raise ValueError('历史网格配置或程序版本不匹配。')
+        domain=job['domain'];source=old['model_reference']['source_id']
+        if (domain.get('domain_id')!=row['domain_id'] or domain.get('scheme_id')!=row['scheme_id']
+                or domain.get('source_sha256')!=source or report.get('source_sha256')!=source
+                or report.get('domain_id')!=row['domain_id'] or report.get('scheme_id')!=row['scheme_id']
+                or report.get('cells')!=row['mesh_cells'] or report.get('domain_artifact_sha256')!=domain.get('artifact_sha256')):
+            raise ValueError('历史网格来源不匹配。')
+        for name,digest in report['artifact_sha256'].items():
+            if Path(name).name!=name or not (folder/name).is_file() or sha256(folder/name)!=digest:raise ValueError('历史网格文件已改变。')
+        if sha256(self.file(key,'case1_flow.msh'))!=report['artifact_sha256']['flow.msh']:raise ValueError('历史网格与原任务文件不一致。')
+        domain_folder=None
+        for name,digest in domain['artifact_sha256'].items():
+            path=self.file(key,'case1_'+name)
+            if sha256(path)!=digest:raise ValueError('历史流体域文件已改变。')
+            if domain_folder is not None and domain_folder!=path.parent:raise ValueError('历史流体域文件目录不一致。')
+            domain_folder=path.parent
+        try:self.designs.models.get(old['config']['design']['model_id'])
+        except ValueError:self.restore_source(key)
+        scheme=self.designs.create(old['config']['design'])
+        if scheme['scheme_id']!=row['scheme_id'] or not scheme['feasible']:raise ValueError('历史几何参考未能恢复。')
+        with self.domains.lock:
+            self.domains.domains[row['domain_id']]=domain;self.domains.directories[row['domain_id']]=domain_folder
+        with self.workflows.lock:
+            self.workflows.results[mid]=report;self.workflows.folders[mid]=folder
+            self.workflows.jobs[mid]=dict(job_id=mid,kind='mesh',status='completed',message='历史网格已恢复并核对',result=report)
+
+    def start(self,request,*,reuse_mesh=None):
         config=normalize(request);self.designs.models.get(config['design'].get('model_id'))
         if not self.workflows.capability()['fluent_available']:raise ValueError(self.workflows.capability()['note'])
         with self.workflows.lock:
@@ -171,6 +229,7 @@ class PipelineStore:
             state=dict(job_id=key,kind='pipeline',status='queued',message='等待自动生成阵列',config=config,cases=[],files={},
                        scientific_eligible=False,grid_independence_verified=False,comparison_eligible=False,cpu_fallback=False,
                        implementation_sha256={n:sha256(ROOT/n) for n in SOURCES},started_at=time.time())
+            if reuse_mesh:state['mesh_resume']=copy.deepcopy(reuse_mesh)
             for i,item in enumerate(config['cases']):
                 state['cases'].append(dict(index=i+1,**item,status='queued',stages=[dict(name=n,status='pending',message='等待执行') for n in STAGES]))
             save(folder/'request.json',config);self.add_file(state,folder/'request.json','request.json');self.publish(state)
@@ -282,11 +341,19 @@ class PipelineStore:
                     self.stage(state,row,'domain','completed','流体域连通与四类边界检查通过')
                     self.check(state,cancel);self.stage(state,row,'mesh','running','自动生成并检查体网格');self.resources()
                     mesh_config=dict(config['mesh'],domain_id=domain['domain_id'],scheme_id=scheme['scheme_id'])
-                    child=self.workflows._start('mesh',mesh_config,current,source,owner=key)
-                    mesh=self.wait(state,row,'mesh',child,cancel);row['mesh_id']=mesh['result_id'];row['mesh_cells']=mesh['cells']
+                    seed=state.get('mesh_resume')
+                    if seed:
+                        if domain['domain_id']!=seed['domain_id'] or scheme['scheme_id']!=seed['scheme_id']:raise ValueError('恢复后的几何或工况引用改变，不能复用网格。')
+                        mesh,_=self.workflows.get_result(seed['mesh_id'],domain['domain_id'],scheme['scheme_id'],'mesh')
+                        if mesh.get('implementation_sha256')!={n:sha256(ROOT/n) for n in IMPLEMENTATION}:raise ValueError('网格程序版本已变化，已停止复用。')
+                        row.update(mesh_job_id=seed['mesh_id'],mesh_reused_from_job=seed['source_job_id'])
+                    else:
+                        child=self.workflows._start('mesh',mesh_config,current,source,owner=key)
+                        mesh=self.wait(state,row,'mesh',child,cancel)
+                    row['mesh_id']=mesh['result_id'];row['mesh_cells']=mesh['cells']
                     mesh,source=self.workflows.get_result(mesh['result_id'],domain['domain_id'],scheme['scheme_id'],'mesh')
                     self.add_file(state,source/'flow.msh',name+'_flow.msh',mesh['artifact_sha256']['flow.msh'])
-                    self.stage(state,row,'mesh','completed','体网格与边界检查通过')
+                    self.stage(state,row,'mesh','completed','复用同参数且哈希已核验的历史网格' if seed else '体网格与边界检查通过')
                     self.check(state,cancel);self.stage(state,row,'flow','running','自动配置并运行 Fluent 冷流');self.resources()
                     flow_config=dict(config['flow'],domain_id=domain['domain_id'],scheme_id=scheme['scheme_id'],mesh_id=mesh['result_id'])
                     if config['comparison']['basis']=='same-heat':
@@ -309,6 +376,18 @@ class PipelineStore:
                     flow,source=self.workflows.get_result(flow['result_id'],domain['domain_id'],scheme['scheme_id'],'flow')
                     for n,d in flow['artifact_sha256'].items():
                         self.add_file(state,source/n,name+'_'+n,d)
+                    if flow_config.get('species_solver_control')=='strict-absolute':
+                        from nozzle_platform.restart_check import run_native,message,journal,RestartCleanupError
+                        self.check(state,cancel);self.resources();self.stage(state,row,'flow','running','保存场已检查，正在零迭代重读；不追加求解')
+                        try:reopen=run_native(source/'final.cas.h5',source/'final.dat.h5',self.workflows.fluent,flow_config,local/'restart',cancel)
+                        except InterruptedError:raise
+                        except RestartCleanupError as error:raise ResourcesUnavailable(str(error)) from error
+                        except Exception as error:reopen=dict(native_read_completed=False,field_preservation_passed=False,added_iterations=0,error=str(error))
+                        row['restart_check']=reopen;row['restart_message']=message(reopen)
+                        save(local/'restart_check.json',reopen);self.add_file(state,local/'restart_check.json',name+'_restart_check.json')
+                        if reopen.get('native_read_completed'):
+                            (local/'reopen_gpu.jou').write_text(journal(name+'_final.cas.h5'),encoding='ascii')
+                            self.add_file(state,local/'reopen_gpu.jou',name+'_reopen_gpu.jou')
                     self.stage(state,row,'flow','completed','计算结束：'+('达到数值检查标准' if row['numerical_criteria_met'] else '保存数据可查看，尚未收敛'))
                     self.check(state,cancel);self.stage(state,row,'maps','running','从实际保存场生成切面云图')
                     try:
@@ -321,6 +400,7 @@ class PipelineStore:
                 except InterruptedError:raise
                 except Exception as error:
                     row.update(status='failed',error=str(error));stage=row.get('stage','design');self.stage(state,row,stage,'failed',str(error))
+                    if isinstance(error,ResourcesUnavailable):row['resource_gate_stopped_before_solver']=stage=='flow' and not row.get('flow_job_id')
                     for item in row['stages']:
                         if item['status']=='pending':item.update(status='skipped',message='前序步骤未通过')
                     self.publish(state)
@@ -385,6 +465,7 @@ class PipelineStore:
             lines.append('| '+' | '.join(cell(row.get(n)) for n in ['index','N','family','installation_area_mm2','actual_fuel_heat_input_kW','actual_air_mass_flow_kg_s','iterations','status'])+' |')
             reason=row.get('error',row.get('map_error',row.get('comparison_error')))
             if reason:lines.extend(['',f"方案 {row['index']}：{cell(reason)}",''])
+            if row.get('restart_message'):lines.extend(['',f"方案 {row['index']} 重读检查：{cell(row['restart_message'])}",''])
         lines.extend(['','各方案的坐标、装配、场图与 Fluent 文件按 case 编号对应；云图采用共同色标，来源与质量记录见 summary.json、maps.json 和哈希清单。'])
         (folder/'report.md').write_text('\n'.join(lines)+'\n',encoding='utf-8');self.add_file(state,folder/'report.md','report.md')
         (folder/'README.txt').write_text('多喷嘴一键冷流任务\n单喷嘴模型、实体装配、坐标、流体域、网格和 Fluent case/data 按方案编号对应。\n字段图为保存迭代的真实切面，采用分片常数单元值，共同色标；达到预算不表示收敛。\ncomparison.csv 比较条件及试算指标，不作燃烧性能排名。相同热输入采用用户低位热值，实际入口流量另核对。\n未收敛、失败、未取得指标及未生成云图均保留状态与原因；不得用于正式方案优选。\n',encoding='utf-8')

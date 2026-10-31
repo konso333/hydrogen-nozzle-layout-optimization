@@ -27,6 +27,21 @@ def quality_from_transcript(path):
     return value
 
 
+def close_flow_session(session,tracker,directory):
+    """Preserve field failures; exit errors need independent process cleanup."""
+    from nozzle_platform.layered_mesh import close_native_session
+    warning=None
+    if session is not None:
+        try:session.settings.file.stop_transcript()
+        except Exception as error:warning=str(error)
+    cleanup=close_native_session(session,tracker,directory)
+    if warning:
+        cleanup['transcript_stop_warning']=warning
+        save(directory/'cleanup.json',cleanup)
+    require(cleanup['all_tracked_processes_exited'],'本次 Fluent 进程退出尚未核实。')
+    return cleanup
+
+
 def run(payload, directory):
     import h5py
     import numpy as np
@@ -288,14 +303,7 @@ def run(payload, directory):
             for point in state['history']:
                 writer.writerow({key:point[key] for key in names if key not in EQUATIONS}|point['residuals'])
     finally:
-        try:
-            tracker.capture(session)
-            if session is not None:
-                session.settings.file.stop_transcript()
-                session.exit(timeout=10,wait=10)
-        finally:
-            cleanup = cleanup_records(list(tracker.owned.values()))
-            save(directory/'cleanup.json',cleanup)
+        cleanup=close_flow_session(session,tracker,directory)
     require(cleanup['all_tracked_processes_exited'],'本次 Fluent 进程退出尚未核实。')
     if verification:
         require(mesh_fingerprint(directory/'configured.cas.h5')==mesh_fingerprint(directory/'final.cas.h5'),

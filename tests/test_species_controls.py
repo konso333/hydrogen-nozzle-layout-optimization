@@ -57,3 +57,29 @@ def test_saved_case_and_live_settings_both_have_to_match(tmp_path):
 def test_saved_profile_cannot_silently_change_global_tolerance_or_relaxation(tmp_path,key,value):
     path=tmp_path/'native.cas.h5';native_case(path,**{key:value})
     with pytest.raises(ValueError,match='实际组分'):controls.saved(path,request(species_solver_control=controls.STRICT))
+
+
+def test_absolute_profile_is_explicit_and_preserves_relaxation(tmp_path):
+    data=request(species_solver_control=controls.STRICT_ABSOLUTE)
+    assert normalize_flow(data)['species_solver_control']=='strict-absolute'
+    path=tmp_path/'native.cas.h5';native_case(path,**{controls.KEYS[0]:1e-20})
+    actual=controls.saved(path,data)
+    assert actual['actual_values']['species/relax']==[1.]*3
+    with pytest.raises(ValueError):controls.saved(path,request(species_solver_control=controls.STRICT))
+    calls=[];controls.apply(SimpleNamespace(scheme_eval=SimpleNamespace(eval=calls.append)),data)
+    assert len(calls)==4 and calls[-1]=="(rpsetvar 'gpuapp/solver/absolute-tolerance-double 1e-20)"
+    assert all('species/relax' not in command for command in calls)
+
+
+@pytest.mark.parametrize('fault', ['tolerance','relaxation'])
+def test_absolute_profile_rejects_saved_parameter_drift(tmp_path,fault):
+    path=tmp_path/'native.cas.h5';changes={controls.KEYS[0]:1e-20}
+    changes[controls.KEYS[0] if fault=='tolerance' else controls.KEYS[4]]=1e-16 if fault=='tolerance' else [.1]*3
+    native_case(path,**changes)
+    with pytest.raises(ValueError):controls.saved(path,request(species_solver_control=controls.STRICT_ABSOLUTE))
+
+
+@pytest.mark.parametrize('device,steps',[('cpu',25),('gpu',101)])
+def test_absolute_profile_has_no_cpu_or_extra_iteration_escape(device,steps):
+    data=request(species_solver_control=controls.STRICT_ABSOLUTE);data.update(compute_device=device,iterations=steps)
+    with pytest.raises(ValueError):normalize_flow(data)
