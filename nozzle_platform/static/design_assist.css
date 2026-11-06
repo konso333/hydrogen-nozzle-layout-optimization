@@ -1,0 +1,5 @@
+.design-assistance{background:#fff;border:1px solid var(--line,#d8e5e5);border-radius:16px;padding:22px;margin:0 0 22px;color:#23454c}
+.design-assistance h3{margin:0 0 12px;font-size:20px}.design-assistance p{line-height:1.65;overflow-wrap:anywhere}
+#design-assist-reasons{padding-left:22px;line-height:1.7}#design-assist-reasons:empty{display:none}
+#design-assist-options{display:grid;gap:10px;margin:16px 0}#design-assist-options button{white-space:normal;text-align:left;line-height:1.5;padding:12px 16px;min-height:44px}
+@media(max-width:640px){.design-assistance{padding:16px}.design-assistance h3{font-size:18px}}

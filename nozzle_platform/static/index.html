@@ -8,7 +8,8 @@
   <link rel="stylesheet" href="/simulation.css">
   <link rel="stylesheet" href="/pipeline.css">
   <link rel="stylesheet" href="/presets.css">
-  <script src="/viewer.js" defer></script><script src="/domain.js" defer></script><script src="/simulation.js" defer></script><script src="/study.js" defer></script><script src="/pipeline.js" defer></script><script src="/presets.js" defer></script><script src="/app.js" defer></script>
+  <link rel="stylesheet" href="/design_assist.css">
+  <script src="/viewer.js" defer></script><script src="/domain.js" defer></script><script src="/simulation.js" defer></script><script src="/study.js" defer></script><script src="/pipeline.js" defer></script><script src="/presets.js" defer></script><script src="/design_assist.js" defer></script><script src="/app.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -57,8 +58,10 @@
           <label for="spacing-mode">定位方式</label><select id="spacing-mode"><option value="auto">自动定位 · 保持上述约束</option><option value="manual">指定中心距与旋转角</option></select>
           <div id="manual-fields" class="two-fields" hidden><div><label for="spacing">中心距 / mm</label><input id="spacing" type="number" value="21" min="0.001" step="any"></div><div><label for="rotation">旋转角 / °</label><input id="rotation" type="number" value="0" step="any"></div></div>
           <p id="spacing-hint" class="hint">自动模式会检查有限组旋转与平移，优先保留边缘余量。</p>
+          <label class="check-label"><input id="explore-families" type="checkbox" checked><span>所选排列未找到时，允许自动改用其他排列，保持数量与几何约束</span></label>
+          <p class="hint">数量与安装半径不会自动改变；需要调整时先给出已核验的建议，由你点击采用。这里只做几何设计，不启动 Fluent。</p>
         </section>
-        <div class="generate-wrap"><button id="generate" class="button primary" type="submit" disabled><span>生成阵列</span><span>↗</span></button><p>安装参数为可编辑示例，尚未作为制造要求确认。</p></div>
+        <div class="generate-wrap"><button id="generate" class="button primary" type="submit" disabled><span>智能生成阵列</span><span>↗</span></button><p>安装参数为可编辑示例，尚未作为制造要求确认。</p></div>
       </form>
       <form id="pipeline-settings">
         <section class="form-section">
@@ -116,21 +119,22 @@
             <p class="hint" id="mesh-method-note">一阶四面体，检查连通性、边界、体积和单元质量。当前方法不含壁面层。</p>
           </fieldset>
           <fieldset id="flow-fieldset" disabled>
-            <h3 class="flow-subtitle">非反应氢气／空气试算</h3>
+            <h3 class="flow-subtitle">Fluent 冷流工况</h3>
+            <label for="flow-physics">物理模型</label><select id="flow-physics"><option value="air-isothermal-v1">首版 · 单一空气定温冷流</option><option value="h2-air">实验 · 氢气／空气非反应混合</option></select>
             <p class="hint" id="solver-capability">正在检查本机 Fluent 环境…</p>
-            <label for="flow-device">计算设备</label><select id="flow-device"><option value="cpu">CPU</option><option value="gpu">GPU · 接入验证中</option></select>
-            <label for="flow-transport">混合物黏度与导热率</label><select id="flow-transport"><option value="ideal-gas-mixing-law">原模型 · 理想气体混合律</option><option value="mass-weighted-mixing-law">接入验证 · 质量加权混合律</option></select>
+            <label for="flow-device">计算设备</label><select id="flow-device"><option value="cpu">CPU · 本机限时短测</option><option value="gpu">GPU</option></select>
+            <label for="flow-transport">输运物性</label><select id="flow-transport"><option value="air-constant">空气 · 按固定温度计算常密度与常黏度</option><option value="ideal-gas-mixing-law">原模型 · 理想气体混合律</option><option value="mass-weighted-mixing-law">接入验证 · 质量加权混合律</option></select>
             <p class="hint" id="flow-device-note">CPU 使用原模型物性。GPU 暂开放短测，失败不会转用 CPU。</p>
-            <details><summary>GPU 组分诊断设置（实验）</summary>
+            <details id="flow-species-panel"><summary>GPU 组分诊断设置（实验）</summary>
             <label for="flow-species-control">组分求解设置</label><select id="flow-species-control"><option value="standard">标准设置</option><option value="strict-linear">线性加强（尚未通过验收）</option><option value="strict-absolute">严格绝对容差（GPU 短测实验）</option></select>
             <p class="hint">实验默认关闭。严格绝对容差保留松弛因子和物性，另收紧全局绝对线性容差；保存场、文件可读取、重读保持和收敛分别核查。</p>
             </details>
             <div class="two-fields"><div><label for="flow-fuel">氢气入口速度 / m/s</label><input id="flow-fuel" type="number" value="1" min="0.001" max="100" step="any" required></div><div><label for="flow-air">空气入口速度 / m/s</label><input id="flow-air" type="number" value="1" min="0.001" max="100" step="any" required></div></div>
             <div class="two-fields"><div><label for="flow-temperature">入口温度 / K</label><input id="flow-temperature" type="number" value="300" min="200" max="600" step="any" required></div><div><label for="flow-iterations">最多计算步数</label><input id="flow-iterations" type="number" value="500" min="1" max="500" step="1" required></div></div>
-            <label for="flow-mode">收敛要求</label><select id="flow-mode"><option value="trial">常规试算（最多 500 步）</option><option value="grid-verification">网格验证（最多 2000 步，至少 200 步）</option><option value="gpu-validation">接入短测（GPU ≤ 100 步，CPU ≤ 25 步）</option></select>
-            <label for="flow-time-budget">每档求解运行时限</label><select id="flow-time-budget"><option value="240" disabled>4 分钟（接入短测，含启动和保存）</option><option value="1800" selected>30 分钟</option><option value="3600" disabled>60 分钟（仅网格验证）</option><option value="7200" disabled>120 分钟（仅网格验证）</option></select>
+            <label for="flow-mode">收敛要求</label><select id="flow-mode"><option value="air-coldflow">空气冷流 · 连续批次检查（GPU ≤ 500 步）</option><option value="trial">常规试算（最多 500 步）</option><option value="grid-verification">网格验证（最多 2000 步，至少 200 步）</option><option value="gpu-validation">接入短测（GPU ≤ 100 步，CPU ≤ 25 步）</option></select>
+            <label for="flow-time-budget">每档求解运行时限</label><select id="flow-time-budget"><option value="240">4 分钟（接入短测，含启动和保存）</option><option value="300" selected>5 分钟（空气冷流，含启动和保存）</option><option value="900">15 分钟（空气冷流）</option><option value="1800">30 分钟</option><option value="3600" disabled>60 分钟（仅网格验证）</option><option value="7200" disabled>120 分钟（仅网格验证）</option></select>
             <label for="flow-oxygen">空气中氧气质量分数</label><input id="flow-oxygen" type="number" value="0.233" min="0.001" max="0.999" step="any" required>
-            <p class="hint">稳态层流、组分输运、反应关闭、绝热壁面，出口表压 0 Pa，工作压力 101325 Pa。参数为可编辑试算示例。</p>
+            <p class="hint" id="flow-model-note">单一空气、定温常物性层流；两类入口都供空气，不计算组分、温度场或燃烧性能。出口表压 0 Pa，工作压力 101325 Pa。层流适用性和网格独立性未验证。</p>
             <button id="run-flow" class="button dark" type="button" disabled>运行 Fluent 冷流 ↗</button>
           </fieldset>
           <fieldset id="study-fieldset" disabled>
@@ -149,9 +153,14 @@
     <div class="workspace">
       <div class="workspace-heading"><div><span class="eyebrow">ARRAY DESIGN STUDIO</span><h2>从一个喷嘴，到自动仿真<span>。</span></h2><p id="workspace-caption">配置完成后，一键生成阵列、构建流体域、划分网格并运行 Fluent 冷流。</p></div><span class="version">一键冷流工作流</span></div>
       <div id="notice" class="notice" role="status" aria-live="polite">正在读取本地模型目录…</div>
+      <section id="design-assistance" class="design-assistance" aria-label="几何设计助手" hidden>
+        <h3>几何设计助手</h3><p id="design-assist-message" role="status" aria-live="polite"></p>
+        <ul id="design-assist-reasons"></ul><div id="design-assist-options"></div>
+        <p class="hint" id="design-assist-scope"></p>
+      </section>
       <section class="pipeline-panel" id="pipeline-panel" aria-label="一键运行与方案结果">
         <div class="pipeline-heading"><div><span class="eyebrow">AUTOMATED WORKFLOW</span><h3>配置一次，程序依次完成</h3><p id="pipeline-ready">载入模型并确认供气模板后可运行。</p></div><button id="run-pipeline" class="button primary" type="button" disabled>一键运行 ↗</button></div>
-        <p class="pipeline-scope">当前供气模板下每方案最多 25 个喷嘴，运行氢气／空气冷流。GPU 沿用界面所选的接入短测与明确物性；未收敛结果保留状态，不用于燃烧性能排名。</p>
+        <p class="pipeline-scope">当前几何模板下每方案最多 25 个喷嘴。首版提供定温空气冷流，氢气／空气保留为实验模板；实际采用的模型、物性及收敛状态随结果导出。未验证的参数范围不用于正式性能排名。</p>
         <div class="pipeline-history"><label for="pipeline-history">运行记录</label><select id="pipeline-history"><option value="">暂无运行记录</option></select><button id="pipeline-refresh" type="button" class="button secondary">刷新</button></div>
         <div id="pipeline-result" hidden>
           <div class="pipeline-progress"><strong id="pipeline-message" role="status" aria-live="polite"></strong><div><button id="pipeline-stop" class="button secondary" type="button" hidden>停止运行</button><button id="pipeline-export" class="button dark" type="button" disabled>导出本次结果 ↓</button></div></div>

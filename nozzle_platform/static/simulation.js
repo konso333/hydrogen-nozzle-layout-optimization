@@ -1,6 +1,13 @@
 "use strict";
 const meshFields=["mesh-min","mesh-max","mesh-inlet","mesh-distance","mesh-algorithm","mesh-curvature","mesh-passage","mesh-factor","mesh-budget","mesh-method","mesh-layer-first","mesh-layer-count","mesh-layer-total","mesh-local-volume"];
-const flowFields=["flow-fuel","flow-air","flow-temperature","flow-oxygen","flow-iterations","flow-mode","flow-time-budget","flow-device","flow-transport","flow-species-control"];
+const flowFields=["flow-physics","flow-fuel","flow-air","flow-temperature","flow-oxygen","flow-iterations","flow-mode","flow-time-budget","flow-device","flow-transport","flow-species-control"];
+function isAirModel(){return $("flow-physics").value==="air-isothermal-v1";}
+const airRoleNames={fuel_inlet:"中心通道空气入口",oxidizer_inlet:"外围通道空气入口",outlet:"共同出口",wall:"壁面"};
+function selectAirModel(){
+  $("flow-mode").value="air-coldflow";$("flow-transport").value="air-constant";$("flow-species-control").value="standard";
+  $("flow-iterations").value=$("flow-device").value==="gpu"?"100":"25";$("flow-time-budget").value="300";
+  if($("pipeline-basis").value==="same-heat")$("pipeline-basis").value="single";
+}
 function simulationAvailability(){
   $("mesh-fieldset").disabled=state.busy||!state.model;
   $("flow-fieldset").disabled=state.busy||!state.model||!state.fluentAvailable;
@@ -17,6 +24,25 @@ function simulationAvailability(){
   $("stop-job").disabled=!state.job;
   $("mesh-state").textContent=state.mesh?"网格已检查":state.domain?"可生成网格":"先构建流体域";
   updateMeshMethod();
+  const air=isAirModel();$("flow-species-panel").hidden=air;$("flow-oxygen").hidden=air;$("flow-oxygen").disabled=air;
+  document.querySelector('label[for="flow-oxygen"]').hidden=air;
+  document.querySelector('label[for="flow-fuel"]').textContent=air?"中心通道空气速度 / m/s":"氢气入口速度 / m/s";
+  document.querySelector('label[for="flow-air"]').textContent=air?"外围通道空气速度 / m/s":"空气入口速度 / m/s";
+  $("flow-model-note").textContent=air?"单一空气，定温常密度／常黏度、层流；关闭组分和能量方程，只输出速度、压力与质量流量。层流适用性和网格独立性未验证，不代表燃烧性能。":"氢气／空气实验模板：稳态层流、组分输运、反应关闭，绝热壁面；出口表压 0 Pa，工作压力 101325 Pa。完整组分通量和正式物性仍在验证。";
+  $("pipeline-basis").querySelector('option[value="same-heat"]').disabled=air;
+  $("flow-transport").querySelector('option[value="air-constant"]').disabled=!air;
+  for(const name of ["ideal-gas-mixing-law","mass-weighted-mixing-law"])$("flow-transport").querySelector(`option[value="${name}"]`).disabled=air;
+  $("flow-mode").querySelector('option[value="air-coldflow"]').disabled=!air;
+  if(air){
+    $("run-study").disabled=true;$("flow-species-control").disabled=true;$("flow-species-control").value="standard";
+    for(const option of $("flow-mode").options)option.disabled=option.value!=="air-coldflow";
+    for(const option of $("flow-time-budget").options)option.disabled=!["240","300","900"].includes(option.value);
+    $("flow-iterations").max=gpu?"500":"25";
+    $("flow-device-note").textContent=gpu?"GPU 运行单一空气冷流，二阶格式；每 25 步检查守恒、压降与全批残差。达到步数上限会保留未收敛结果，失败不转 CPU。":"CPU 仅用于本机空气短测：最多 25 步，计算段 60 秒上限；GPU 不可用时不会自动回退。";
+    return;
+  }
+  for(const seconds of [300,900])$("flow-time-budget").querySelector(`option[value="${seconds}"]`).disabled=true;
+  $("flow-mode").querySelector('option[value="gpu-validation"]').disabled=false;
   const verification=$("flow-mode").value==="grid-verification";
   for(const mode of ["trial","grid-verification"])$("flow-mode").querySelector(`option[value="${mode}"]`).disabled=gpu||$("flow-transport").value!=="ideal-gas-mixing-law";
   $("flow-time-budget").querySelector('option[value="240"]').disabled=!shortTest;
@@ -46,9 +72,11 @@ function displayFlow(flow){
   $("flow-summary").textContent=`已计算 ${flow.iterations_completed} 步 · ${flow.numerical_criteria_met?"达到设定数值检查标准":"达到步数预算，尚未收敛"} · ${flow.solver_cell_type==="mixed-polyhex"?"壁面层与混合体单元":flow.polyhedral_conversion_performed?"已转换多面体":"四面体"} · ${flow.spatial_scheme==="second-order-upwind"?"二阶迎风":"一阶迎风"}`;
   $("flow-summary").className=flow.numerical_criteria_met?"passed":"pending";
   if(flow.gpu_validation_only)$("flow-summary").textContent=`${flow.compute_device.toUpperCase()} 接入短测完成 · ${flow.iterations_completed} 步 · 质量加权输运物性 · 仅验证程序接入，未验证收敛或物性适用性`;
+  if(flow.physical_model==="air-isothermal-v1")$("flow-summary").textContent="单一空气定温冷流 · "+$("flow-summary").textContent+" · 物理适用性与网格独立性未验证";
   const lastCard=flow.gpu_validation_only?[`${flow.compute_device.toUpperCase()} 计算用时`,fmt(flow.execution_profile.iteration_wall_seconds.reduce((s,b)=>s+b.seconds,0),2)+" 秒","仅计算段；启动和保存另计"]:["连续通过批次",`${flow.convergence_assessment.consecutive_passing_blocks} / ${flow.convergence_assessment.required_consecutive_blocks}`,"每批次完整检查 25 步"];
   cards("flow-cards",[["实际计算步数",flow.iterations_completed,"Fluent 保存文件核实"],["最小正交质量",fmt(flow.minimum_fluent_orthogonal_quality,4),"本模板筛选值 ≥ 0.1"],["最大长宽比",fmt(flow.maximum_fluent_aspect_ratio,2),"本模板筛选值 ≤ 100"],lastCard]);
-  $("flow-table").replaceChildren();for(const [role,[name]] of Object.entries(domainRoleInfo)){const row=document.createElement("tr");for(const text of [name,last.mass_flow_kg_s[role].toExponential(6),last.area_weighted_total_pressure_drop_Pa[role]===undefined?"—":fmt(last.area_weighted_total_pressure_drop_Pa[role],5)]){const cell=document.createElement("td");cell.textContent=text;row.append(cell);}$("flow-table").append(row);}
+  $("flow-table").replaceChildren();for(const [role,[name]] of Object.entries(domainRoleInfo)){const row=document.createElement("tr");for(const text of [flow.physical_model==="air-isothermal-v1"?airRoleNames[role]:name,last.mass_flow_kg_s[role].toExponential(6),last.area_weighted_total_pressure_drop_Pa[role]===undefined?"—":fmt(last.area_weighted_total_pressure_drop_Pa[role],5)]){const cell=document.createElement("td");cell.textContent=text;row.append(cell);}$("flow-table").append(row);}
+  $("flow-results").querySelector(".scope").textContent=flow.physical_model==="air-isothermal-v1"?"单一空气定温常物性层流，中心与外围通道都供空气。温度是固定输入；不计算组分、能量或燃烧性能。质量流量和压差来自实际保存文件；数值检查通过不表示物理适用性或网格独立性通过。":"真实 Fluent 非反应氢气／空气试算；氢气平衡项仅计对流。达到步数预算不表示收敛，数值检查通过也不表示物理模型或网格已验证。";
   $("convergence-note").closest("details").hidden=Boolean(flow.gpu_validation_only);
   if(!flow.gpu_validation_only)displayConvergence(flow.convergence_assessment);
   displayQualityHistory(flow);drawResiduals(flow.history);availability();
@@ -70,7 +98,7 @@ function displayQualityHistory(flow){
   for(const stage of flow.mesh_quality_history){const row=document.createElement("tr");for(const text of [names[stage.stage]||`内部改善 ${stage.improvement_passes}`,fmt(stage.minimum_orthogonal_quality,5),fmt(stage.maximum_aspect_ratio,2),stage.retained_as_best?"保留检查点":"未替换最佳网格"]){const cell=document.createElement("td");cell.textContent=text;row.append(cell);}$("quality-checks").append(row);}
 }
 function drawResiduals(history){
-  const names=["continuity","x-velocity","y-velocity","z-velocity","energy","h2","o2","h2o"],colors=["#237b61","#3691c9","#c27c25","#9562b7","#be5462","#535fc0","#70872a","#4c9893"];
+  const names=["continuity","x-velocity","y-velocity","z-velocity","energy","h2","o2","h2o"].filter(n=>history.some(p=>Object.hasOwn(p.residuals,n))),colors=["#237b61","#3691c9","#c27c25","#9562b7","#be5462","#535fc0","#70872a","#4c9893"];
   const logs=history.flatMap(point=>names.map(name=>point.residuals[name]).filter(v=>v>0).map(Math.log10));
   if(!logs.length){$("residual-chart").textContent="各批次末步缩放残差均为 0。";return;}
   const high=Math.ceil(Math.max(...logs)),low=Math.min(high-1,Math.floor(Math.min(...logs))),maxIter=Math.max(1,history.at(-1).iteration);
@@ -113,15 +141,18 @@ async function exportSimulation(kind){
 }
 function updateMeshMethod(){const layered=$("mesh-method").value==="layered-polyhex";$("mesh-layer-panel").hidden=!layered;for(const id of ["mesh-layer-first","mesh-layer-count","mesh-layer-total","mesh-local-volume"])$(id).disabled=state.busy||!layered;$("mesh-algorithm").disabled=state.busy||layered;$("mesh-method-note").textContent=layered?"使用 Fluent 生成轴向壁面层与混合体网格，检查连通性、开口、单元闭合、几何及质量；该方法仍在真实复算验证中。":"一阶四面体，检查连通性、边界、体积和单元质量。当前方法不含壁面层。";}
 function selectGpuValidation(){
+  if(isAirModel()){$("flow-device").value="gpu";selectAirModel();return;}
   $("flow-device").value="gpu";$("flow-mode").value="gpu-validation";
   $("flow-transport").value="mass-weighted-mixing-law";$("flow-iterations").value="100";$("flow-time-budget").value="240";
 }
 function initializeSimulation(){
   initializeStudy();
+  if(isAirModel())selectAirModel();
+  $("flow-physics").addEventListener("input",()=>{if(isAirModel())selectAirModel();else if($("flow-device").value==="gpu")selectGpuValidation();else{$("flow-mode").value="gpu-validation";$("flow-transport").value="ideal-gas-mixing-law";$("flow-iterations").value="25";$("flow-time-budget").value="240";}notice(isAirModel()?"已选择首版空气冷流：两类通道均供空气；燃料热输入比较不适用。":"已选择氢气／空气实验模板，请核对混合物性和组分设置。","neutral");});
   $("mesh-method").addEventListener("input",updateMeshMethod);updateMeshMethod();
-  $("mesh-layer-preset").addEventListener("click",()=>{for(const [id,value] of Object.entries({"mesh-min":.03,"mesh-max":2,"mesh-inlet":.07,"mesh-distance":2,"mesh-curvature":27,"mesh-passage":.5,"mesh-factor":.8,"mesh-budget":3000000,"mesh-layer-first":.025,"mesh-layer-count":5,"mesh-layer-total":.25,"flow-iterations":2000,"flow-mode":"grid-verification","flow-time-budget":7200}))$(id).value=value;if($("flow-device").value==="gpu")selectGpuValidation();$("mesh-local-volume").checked=true;invalidateMesh();availability();notice("已填入壁面层与局部体积加密起步参数，仍需检查实际网格质量、区域尺度与三档收敛结果。");});
-  $("flow-device").addEventListener("input",()=>{if($("flow-device").value==="gpu"){selectGpuValidation();notice("已选择 GPU 接入短测，输运物性改为界面所示的质量加权混合律；原模型验证记录保留。");}else if($("flow-mode").value==="gpu-validation")$("flow-iterations").value=Math.min(25,numeric("flow-iterations"));});
-  $("flow-mode").addEventListener("input",()=>{const mode=$("flow-mode").value;if(mode==="gpu-validation"){$("flow-time-budget").value="240";$("flow-iterations").value=Math.min($("flow-device").value==="gpu"?100:25,numeric("flow-iterations"));}else{$("flow-time-budget").value="1800";if(mode==="trial"&&Number($("flow-iterations").value)>500)$("flow-iterations").value="500";}});
+  $("mesh-layer-preset").addEventListener("click",()=>{for(const [id,value] of Object.entries({"mesh-min":.03,"mesh-max":2,"mesh-inlet":.07,"mesh-distance":2,"mesh-curvature":27,"mesh-passage":.5,"mesh-factor":.8,"mesh-budget":3000000,"mesh-layer-first":.025,"mesh-layer-count":5,"mesh-layer-total":.25,"flow-iterations":2000,"flow-mode":"grid-verification","flow-time-budget":7200}))$(id).value=value;if(isAirModel())selectAirModel();else if($("flow-device").value==="gpu")selectGpuValidation();$("mesh-local-volume").checked=true;invalidateMesh();availability();notice("已填入壁面层与局部体积加密起步参数，仍需检查实际网格质量、区域尺度与三档收敛结果。");});
+  $("flow-device").addEventListener("input",()=>{if(isAirModel()){selectAirModel();return;}if($("flow-device").value==="gpu"){selectGpuValidation();notice("已选择 GPU 接入短测，输运物性改为界面所示的质量加权混合律；原模型验证记录保留。");}else if($("flow-mode").value==="gpu-validation")$("flow-iterations").value=Math.min(25,numeric("flow-iterations"));});
+  $("flow-mode").addEventListener("input",()=>{const mode=$("flow-mode").value;if(isAirModel())return;if(mode==="gpu-validation"){$("flow-time-budget").value="240";$("flow-iterations").value=Math.min($("flow-device").value==="gpu"?100:25,numeric("flow-iterations"));}else{$("flow-time-budget").value="1800";if(mode==="trial"&&Number($("flow-iterations").value)>500)$("flow-iterations").value="500";}});
   for(const id of meshFields)$(id).addEventListener("input",()=>{invalidateMesh();availability();});
   for(const id of flowFields)$(id).addEventListener("input",()=>{invalidateFlow();availability();});
   $("simulation-form").addEventListener("submit",event=>{event.preventDefault();if(state.busy||!state.domain)return;try{const request={...parentIds(),...meshValues()};invalidateMesh();startSimulation("mesh",request);}catch(error){notice(error.message,"error");}});

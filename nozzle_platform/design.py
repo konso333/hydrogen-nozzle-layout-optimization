@@ -62,7 +62,9 @@ def generate(request, model):
     pitch = diameter + gap if automatic or not lattice else number(request["spacing_mm"], "中心距", strict=True)
     if not automatic and lattice and pitch + 1e-9 < diameter + gap:
         raise ValueError("指定中心距小于包络直径与最小间隙之和。")
-    if lattice and radius / pitch + .71 > 15:
+    if not math.isfinite(diameter+gap):
+        raise ValueError("喷嘴直径与间隙之和超出有限数值范围。")
+    if lattice and not automatic and radius / pitch + .71 > 15:
         raise ValueError("区域半径与中心距之比超过首版点池预算，请缩小区域或增大中心距。")
     layouts = []
     angles = [0, 15, 30, 45, 60, 75] if automatic else [rotation]
@@ -78,7 +80,7 @@ def generate(request, model):
         if request["region"] == "sector" and not 0 < sweep < 360:
             raise ValueError("扇形角度必须大于 0°且小于 360°。")
         multiplier = min(16, max(1, math.ceil(360 / sweep))) if request["region"] == "sector" else 1
-        if count * multiplier > 2000:
+        if not automatic and count * multiplier > 2000:
             raise ValueError("扇形候选点超过预算，请减少 N 或增大扇形角度。")
         for angle in angles:
             for fraction in ([1, .9, .8] if automatic else [1]):
@@ -89,11 +91,21 @@ def generate(request, model):
               "edge_gap_mm": gap, "wall_clearance_mm": wall}, "counts": [count],
               "radius_candidates_mm": [], "layouts": layouts, "power_model": None,
               "target_power_kW": None, "tolerance_mm": 1e-9}
-    report = run_shape_search(design)
+    capacity=None
+    if automatic:
+        from nozzle_platform.layout_search import search
+        from shape_boundary import MountingBoundary
+        MountingBoundary(**boundary)
+        found=search(request);capacity=len(found['capacity']['coordinates_mm']) if found['capacity'] else 0
+        report=dict(candidates=[found['candidate']] if found['candidate'] else [],unique_requests=found['attempts'],feasible_count=found['feasible_count'],infeasible_candidates=[dict(reason=f"本次有限点池最多找到 {capacity} 个满足约束的位置，目标为 {count} 个。")])
+        design=dict(engine=found['engine'],request=dict(request),replay_method='nozzle_platform.design.generate(request, model)',global_optimum_proven=False)
+    else:
+        report = run_shape_search(design)
     if not report["candidates"]:
         return {"feasible": False, "N": count, "request": request,
                 "message": "当前参数下未找到可行排布。请减少 N、增大区域或调整间距／排列。程序未改变你的数量或约束。",
                 "attempts": report["unique_requests"],
+                "search_capacity_found":capacity,
                 "failure_reasons": list(dict.fromkeys(r["reason"] for r in report["infeasible_candidates"]))[:5],
                 "search_scope": "有限参数族；未找到候选不等于不存在其他非规则排布。"}
     chosen = min(report["candidates"], key=lambda c: (-c["metrics"]["minimum_boundary_margin_mm"], c["layout_id"]))
@@ -110,6 +122,7 @@ def generate(request, model):
     return {"schema_version": 1, "platform_version": "0.1.0", "scheme_id": scheme_id, "feasible": True,
             "request": request, "coordinates_mm": coordinates, "summary": summary,
             "candidate": chosen, "search_design": design, "attempts": report["unique_requests"],
+            "search_capacity_found":capacity,
             "feasible_candidates": report["feasible_count"], "model": {k: v for k, v in model.items()
                 if k not in {"vertices", "triangles"}},
             "scope": "整个模型的同轴圆柱包络检查；未生成公共流体域、网格或 CFD 结果。",
@@ -146,6 +159,7 @@ class DesignStore:
         self.root.mkdir(parents=True, exist_ok=True)
         self.models = models
         self.schemes, self.downloads = {}, {}
+        self.advice_reports={}
         self.lock = threading.RLock()
 
     def get(self, scheme_id):
@@ -160,6 +174,38 @@ class DesignStore:
         if scheme["feasible"]:
             with self.lock:
                 self.schemes[scheme["scheme_id"]] = scheme
+        return scheme
+
+    def advise(self,payload):
+        from nozzle_platform.layout_advisor import advise
+        if not isinstance(payload.get('design'),dict):raise ValueError('请提供完整的 design 参数对象。')
+        request=payload.get('design',{})
+        model=self.models.get(request.get('model_id'))
+        result=advise(payload,model)
+        result['advice_id']=uuid.uuid4().hex
+        for index,suggestion in enumerate(result['suggestions']):suggestion['suggestion_id']=str(index)
+        import copy
+        with self.lock:
+            if len(self.advice_reports)>=32:self.advice_reports.pop(next(iter(self.advice_reports)))
+            self.advice_reports[result['advice_id']]=copy.deepcopy(result)
+        if result.get('scheme'):
+            scheme=result['scheme']
+            with self.lock:self.schemes[scheme['scheme_id']]=scheme
+        return result
+
+    def adopt(self,payload):
+        import copy
+        from nozzle_platform.layout_advisor import annotate
+        if set(payload)!={'advice_id','suggestion_id','current_design'}:raise ValueError('采用建议需要原建议编号及当前参数快照。')
+        with self.lock:report=copy.deepcopy(self.advice_reports.get(payload['advice_id']))
+        if not report:raise ValueError('建议不存在或已过期，请重新生成。')
+        if payload['current_design']!=report['requested_design']:raise ValueError('当前参数已改变，旧建议不再适用。')
+        suggestion=next((s for s in report['suggestions'] if s['suggestion_id']==payload['suggestion_id']),None)
+        if suggestion is None:raise ValueError('找不到所选建议。')
+        model=self.models.get(suggestion['request']['model_id']);scheme=generate(suggestion['request'],model)
+        if not scheme['feasible'] or scheme['scheme_id']!=suggestion['scheme_id']:raise ValueError('建议重新核验未通过，未采用。')
+        annotate(scheme,report['requested_design'],'explicit_suggestion_click')
+        with self.lock:self.schemes[scheme['scheme_id']]=scheme
         return scheme
 
     def export(self, scheme_id, *, cad=False):

@@ -5,13 +5,14 @@ function node(tag,text,className){const e=document.createElement(tag);if(text!==
 async function json(url){const r=await fetch(url,{cache:"no-store"});const v=await r.json();if(!r.ok)throw new Error(v.error||"无法读取报告");return v;}
 function notice(text,error=false){$("notice").textContent=text;$("notice").className=error?"error":"";}
 function value(v){if(v===null||v===undefined)return "未取得";if(typeof v==="number")return Number.isFinite(v)?String(v):"未取得";return String(v);}
+function metricValue(v){if(typeof v!=="number"||!Number.isFinite(v)||v===0)return value(v);return Math.abs(v)<.001||Math.abs(v)>=1e6?v.toExponential(5):String(Number(v.toPrecision(6)));}
 async function load(id){
  const serial=++requestNumber;current=null;$("report").hidden=true;$("bundle").hidden=true;notice("正在核对报告完整性…");
  try{
   const r=await json("/api/verification-reports/"+encodeURIComponent(id));if(serial!==requestNumber)return;current=r;
   $("title").textContent=r.title;$("summary").textContent=r.summary;$("statuses").replaceChildren();
   for(const [key,label] of [["saved_fields","保存数据"],["convergence","数值收敛"],["physical_scope","物理适用范围"]]){const s=r.statuses[key],card=node("div",undefined,"status-card state-"+s.state);card.append(node("small",label),node("h3",s.label),node("p",s.detail));$("statuses").append(card);}
-  $("metrics").replaceChildren();for(const m of r.metrics){const card=node("div");card.append(node("small",m.label),node("strong",value(m.value)),node("span",m.unit||""));$("metrics").append(card);}
+  $("metrics").replaceChildren();for(const m of r.metrics){const card=node("div");card.append(node("small",m.label),node("strong",metricValue(m.value)),node("span",m.unit||""));$("metrics").append(card);}
   $("method").textContent=r.method;$("missing").replaceChildren();for(const text of r.missing_evidence)$("missing").append(node("li",text));
   $("table-head").replaceChildren();const head=node("tr");for(const c of r.table.columns)head.append(node("th",c));$("table-head").append(head);$("table-body").replaceChildren();
   for(const cells of r.table.rows){const row=node("tr");for(const c of cells)row.append(node("td",value(c)));$("table-body").append(row);}

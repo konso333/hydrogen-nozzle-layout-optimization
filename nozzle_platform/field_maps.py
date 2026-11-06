@@ -44,7 +44,7 @@ def face_triangles(vertices,eps):
     triangles.append(vertices[remaining]);return triangles
 
 
-def section(case_path,data_path,*,axis='y',position_mm=0.):
+def section(case_path,data_path,*,axis='y',position_mm=0.,physical_model='h2-air'):
     import h5py
     from nozzle_platform.nozzle_gpu_probe import _field
     if axis not in ('x','y') or not np.isfinite(position_mm):raise ValueError('截面只能选择 X 或 Y 方向的有限坐标。')
@@ -53,12 +53,15 @@ def section(case_path,data_path,*,axis='y',position_mm=0.):
         mesh=f['meshes/1'];top=mesh['cells/zoneTopology']
         if list(top['minId'][()])!=[1] or len(top['maxId'])!=1:raise ValueError('云图当前要求一个连续流体单元区。')
         count=int(top['maxId'][0]);group=d['results/1/phase-1/cells']
-        values={n:_field(group,n,1,count) for n in ['SV_U','SV_V','SV_W','SV_P','SV_T']}
-        y=_field(group,'SV_Y',1,count,width=4)
-        if y.min()<0 or y.max()>1 or np.max(abs(y.sum(axis=1)-1))>1e-8:raise ValueError('保存组分范围或闭合检查未通过，不能生成云图。')
-        if np.any(values['SV_T']<=0):raise ValueError('保存温度无效。')
-        fields=dict(speed=np.sqrt(sum(values[n]**2 for n in ['SV_U','SV_V','SV_W'])),
-                    pressure=values['SV_P'],temperature=values['SV_T'],h2=y[:,0])
+        if physical_model not in ('h2-air','air-isothermal-v1'):raise ValueError('场图物理模型无效。')
+        air=physical_model=='air-isothermal-v1'
+        values={n:_field(group,n,1,count) for n in ['SV_U','SV_V','SV_W','SV_P']+([] if air else ['SV_T'])}
+        fields=dict(speed=np.sqrt(sum(values[n]**2 for n in ['SV_U','SV_V','SV_W'])),pressure=values['SV_P'])
+        if not air:
+            y=_field(group,'SV_Y',1,count,width=4)
+            if y.min()<0 or y.max()>1 or np.max(abs(y.sum(axis=1)-1))>1e-8:raise ValueError('保存组分范围或闭合检查未通过，不能生成云图。')
+            if np.any(values['SV_T']<=0):raise ValueError('保存温度无效。')
+            fields.update(temperature=values['SV_T'],h2=y[:,0])
         points=mesh['nodes/coords/1'][()];counts=mesh['faces/nodes/1/nnodes'][()].astype(np.int64)
         nodes=mesh['faces/nodes/1/nodes'][()].astype(np.int64)-1
         owner=mesh['faces/c0/1'][()].astype(np.int64)-1
@@ -135,21 +138,21 @@ def section(case_path,data_path,*,axis='y',position_mm=0.):
     return dict(polygons=polygons,cell_ids=ids+1,values={n:v[ids] for n,v in fields.items()},
                 axis=axis,position_mm=float(position_mm),effective_position_mm=plane*1000,
                 geometric_offset_mm=(plane-requested_plane)*1000,project_axes=['xyz'[i] for i in project],
-                source_cells=count,tangential_cells=tangential,
+                source_cells=count,tangential_cells=tangential,physical_model=physical_model,field_names=list(fields),
                 scope='真实网格切面，多边形面耳切三角化后裁切，保留翘曲面三维顶点；采用已记录几何容差内的单侧截面避免面重合；单元内分片常数，不跨壁面插值。')
 
 
-def extract(case_path,data_path,output,*,axis='y',position_mm=0.):
+def extract(case_path,data_path,output,*,axis='y',position_mm=0.,physical_model='h2-air'):
     from nozzle_platform.workflows import sha256,save
     output=Path(output);output.mkdir(parents=True,exist_ok=True)
-    result=section(case_path,data_path,axis=axis,position_mm=position_mm)
+    result=section(case_path,data_path,axis=axis,position_mm=position_mm,physical_model=physical_model)
     lengths=[len(p) for p in result['polygons']]
     np.savez_compressed(output/'section.npz',vertices=np.concatenate(result['polygons']),offsets=np.r_[0,np.cumsum(lengths)],
                         cell_ids=result['cell_ids'],**result['values'])
     import csv
     with (output/'section_values.csv').open('w',encoding='utf-8-sig',newline='') as stream:
-        writer=csv.writer(stream);writer.writerow(['cell_id',*FIELDS])
-        writer.writerows(zip(result['cell_ids'],*(result['values'][n] for n in FIELDS)))
+        writer=csv.writer(stream);writer.writerow(['cell_id',*result['values']])
+        writer.writerows(zip(result['cell_ids'],*result['values'].values()))
     report={k:v for k,v in result.items() if k not in ('polygons','values','cell_ids')}
     report.update(section_polygons=len(lengths),case_sha256=sha256(case_path),data_sha256=sha256(data_path),
                   section_sha256=sha256(output/'section.npz'),csv_sha256=sha256(output/'section_values.csv'),
@@ -168,12 +171,15 @@ def render(folders,*,labels=None):
     if not folders or len(folders)>3:raise ValueError('云图每次支持 1～3 个方案。')
     if any(sha256(p/'section.npz')!=r['section_sha256'] for p,r in zip(folders,reports)):raise ValueError('截面采样文件已改变。')
     if len({(r['axis'],r['position_mm']) for r in reports})!=1:raise ValueError('多方案云图必须使用同一物理截面。')
-    limits={n:[min(r['bounds'][n][0] for r in reports),max(r['bounds'][n][1] for r in reports)] for n in FIELDS}
+    chosen=reports[0].get('field_names',list(FIELDS))
+    if any(r.get('field_names',list(FIELDS))!=chosen or r.get('physical_model','h2-air')!=reports[0].get('physical_model','h2-air') for r in reports):raise ValueError('不同物理模型或场种类不能合并色标。')
+    limits={n:[min(r['bounds'][n][0] for r in reports),max(r['bounds'][n][1] for r in reports)] for n in chosen}
     for index,(folder,report) in enumerate(zip(folders,reports)):
         images={}
         with np.load(folder/'section.npz') as data:
             vertices=data['vertices'];offset=data['offsets'];polygons=[vertices[a:b] for a,b in zip(offset,offset[1:])]
-            for name,(label,unit,cmap) in FIELDS.items():
+            for name in chosen:
+                label,unit,cmap=FIELDS[name]
                 fig,ax=plt.subplots(figsize=(7,7),layout='constrained')
                 low,high=limits[name]
                 if low==high:
@@ -222,7 +228,7 @@ def main():
     from nozzle_platform.workflows import save
     folder=Path(sys.argv[1]);spec=json.loads((folder/'postprocess.json').read_text(encoding='utf-8'))
     try:
-        if spec['operation']=='extract':result=extract(spec['case'],spec['data'],spec['output'],axis=spec['axis'],position_mm=spec['position_mm'])
+        if spec['operation']=='extract':result=extract(spec['case'],spec['data'],spec['output'],axis=spec['axis'],position_mm=spec['position_mm'],physical_model=spec.get('physical_model','h2-air'))
         elif spec['operation']=='render':result=render(spec['folders'],labels=spec['labels'])
         elif spec['operation']=='assembly':result=assembly_image(spec['preview'],spec['coordinates'],spec['output'])
         else:raise ValueError('Unknown field-map operation')

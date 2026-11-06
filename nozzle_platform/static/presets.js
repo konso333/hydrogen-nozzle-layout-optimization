@@ -7,7 +7,7 @@ function presetAvailability(){
  for(const id of ["preset-save","preset-check"])$(id).disabled=state.busy||!state.model;
 }
 async function refreshPresets(selected){
- const data=await pipelineGet("/api/presets");presetState.items=data.presets;
+ const data=await pipelineGet("/api/presets");data.presets.sort((a,b)=>Number(b.physical_model==="air-isothermal-v1")-Number(a.physical_model==="air-isothermal-v1"));presetState.items=data.presets;
  const before=selected||$("preset-select").value;$("preset-select").replaceChildren();
  for(const p of data.presets){const option=document.createElement("option");option.value=p.preset_id;option.textContent=(p.builtin?"起步示例 · ":"")+p.name+(p.available?` · N=${p.N}`:" · 不可用");$("preset-select").append(option);}
  if(!data.presets.length){const option=document.createElement("option");option.value="";option.textContent="暂无预设，可保存当前配置";$("preset-select").append(option);}
@@ -19,6 +19,7 @@ function presetValue(id,value){
  if(input.type==="checkbox")input.checked=!!value;else input.value=value;
 }
 function applyPreset(request){
+ presetValue("flow-physics",request.flow.physical_model||"h2-air");
  presetValue("flow-species-control",request.flow.species_solver_control||"standard");
  const maps={design:{N:"count",family:"family",region:"region",radius_mm:"radius",start_angle_deg:"start-angle",sweep_angle_deg:"sweep-angle",diameter_mm:"diameter",edge_gap_mm:"gap",wall_clearance_mm:"wall",spacing_mode:"spacing-mode",spacing_mm:"spacing",rotation_deg:"rotation"},
  domain:{boundary_template:"domain-template",chamber_radius_mm:"chamber-radius",chamber_length_mm:"chamber-length",chamber_start_z_mm:"chamber-start",passage_radius_mm:"passage-radius",upstream_z_mm:"upstream-z",fuel_z_mm:"fuel-z",fuel_half_band_mm:"fuel-band",oxidizer_ports_per_nozzle:"air-ports",fuel_ports_per_nozzle:"fuel-ports"},
@@ -37,7 +38,7 @@ function applyPreset(request){
 async function loadPreset(){
  if(state.busy)return;busy(true,"正在恢复预设模型与参数…");
  try{const data=await api("/api/preset-load",{preset_id:$("preset-select").value});invalidateModel();state.sources=data.models;sourceOptions(data.model.source_id);$("axis").value=data.model.axis;installModel(data.model);applyPreset(data.request);
-  $("preset-name").value=data.preset.name;$("preset-note").textContent=`已载入 ${data.preset.name}。模型与参考坐标已恢复；请确认供气模板，检查参数后再运行。`+(data.request.flow.compute_device==="gpu"?"当前为界面明确显示的 GPU 兼容物性短测。":"当前为 CPU 有界短测，使用界面所选物性。");
+  $("preset-name").value=data.preset.name;$("preset-note").textContent=`已载入 ${data.preset.name}。模型与参考坐标已恢复；请确认供气模板，检查参数后再运行。`+(data.request.flow.physical_model==="air-isothermal-v1"?"当前为单一空气定温冷流；两类通道都供空气，不计算燃烧。":data.request.flow.compute_device==="gpu"?"当前为界面明确显示的 GPU 兼容物性短测。":"当前为 CPU 有界短测，使用界面所选物性。");
   notice("预设已载入，尚未启动网格或求解。请核对供气模板与当前实际结构。","neutral");
  }catch(e){notice(e.message,"error");}finally{busy(false);}
 }

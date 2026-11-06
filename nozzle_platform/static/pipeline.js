@@ -24,6 +24,10 @@ function pipelineRequest(){
  return {design:parameters(),domain,mesh:meshValues(),flow:flowValues(),comparison,section:{axis:$("pipeline-axis").value,position_mm:numeric("pipeline-position")}};
 }
 function displayPipeline(task){
+ const air=task.config.flow.physical_model==="air-isothermal-v1",heads=$("pipeline-rows").closest("table").querySelectorAll("thead th");
+ for(const [i,label] of [[3,air?"中心空气 / kg·s⁻¹":"实际热输入 / kW"],[4,air?"外围空气 / kg·s⁻¹":"空气总流量 / kg·s⁻¹"],[5,air?"中心通道总压差 / Pa":"燃料总压差 / Pa"],[6,air?"外围通道总压差 / Pa":"空气总压差 / Pa"]])heads[i].textContent=label;
+ for(const option of $("pipeline-map-field").options)option.disabled=air&&["h2","temperature"].includes(option.value);
+ if($("pipeline-map-field").selectedOptions[0]?.disabled)$("pipeline-map-field").value="speed";
  if(pipelineState.task?.job_id!==task.job_id)$("pipeline-stop").disabled=false;
  pipelineState.task=task;$("pipeline-result").hidden=false;$("pipeline-message").textContent=task.message;
  const running=["queued","running"].includes(task.status);$("pipeline-stop").hidden=!running;$("pipeline-export").disabled=running;
@@ -35,10 +39,10 @@ function displayPipeline(task){
   if(row.restart_message)card.append(pipelineNode("p",row.restart_message,"pipeline-recovery"));
   if(!running&&["failed","completed_with_failures"].includes(task.status)&&task.cases.length===1&&row.stage==="flow"&&row.mesh_id&&!row.flow_job_id&&(row.resource_gate_stopped_before_solver||/^(可用内存不足 4 GiB|输出磁盘可用空间不足 5 GiB)/.test(row.error||""))){
    const resume=pipelineNode("button","复用此网格继续 ↗","button secondary");resume.type="button";resume.disabled=state.busy;
-   resume.addEventListener("click",async()=>{if(state.busy)return;try{state.busy=true;availability();const next=await api("/api/pipeline-from-mesh",{job_id:task.job_id});state.job=next.job_id;await refreshPipelineHistory(next.job_id);}catch(e){state.busy=false;availability();notice(e.message,"error");}});card.append(resume);
+   resume.addEventListener("click",async()=>{if(state.busy)return;try{const request={job_id:task.job_id};if(task.config.flow.physical_model==="air-isothermal-v1")request.iterations=Math.min(task.config.flow.iterations,numeric("flow-iterations"));state.busy=true;availability();const next=await api("/api/pipeline-from-mesh",request);state.job=next.job_id;await refreshPipelineHistory(next.job_id);}catch(e){state.busy=false;availability();notice(e.message,"error");}});card.append(resume);
   }
   $("pipeline-stages").append(card);
-  const tr=pipelineNode("tr");for(const v of [row.index,`${row.N} / ${familyNames[row.family]}`,fmt(row.installation_area_mm2,2),fmt(row.actual_fuel_heat_input_kW,6),fmt(row.actual_air_mass_flow_kg_s,8),fmt(row.pressure_drop_Pa?.fuel_inlet,5),fmt(row.pressure_drop_Pa?.oxidizer_inlet,5),pipelineStatusNames[row.status]||row.status])tr.append(pipelineNode("td",v));
+  const tr=pipelineNode("tr");for(const v of [row.index,`${row.N} / ${familyNames[row.family]}`,fmt(row.installation_area_mm2,2),air?fmt(row.center_air_mass_flow_kg_s,8):fmt(row.actual_fuel_heat_input_kW,6),fmt(air?row.outer_air_mass_flow_kg_s:row.actual_air_mass_flow_kg_s,8),fmt(row.pressure_drop_Pa?.fuel_inlet,5),fmt(row.pressure_drop_Pa?.oxidizer_inlet,5),pipelineStatusNames[row.status]||row.status])tr.append(pipelineNode("td",v));
   const view=pipelineNode("td"),button=pipelineNode("button","载入装配");button.type="button";button.disabled=!row.scheme_id||running;button.addEventListener("click",()=>showPipelineAssembly(row.index));view.append(button);tr.append(view);$("pipeline-rows").append(tr);
   const option=pipelineNode("option",`方案 ${row.index} · ${familyNames[row.family]}`);option.value=String(row.index);$("pipeline-map-case").append(option);
  }

@@ -43,6 +43,9 @@ def close_flow_session(session,tracker,directory):
 
 
 def run(payload, directory):
+    if payload['config'].get('physical_model')=='air-isothermal-v1':
+        from nozzle_platform.air_solver import run as run_air
+        return run_air(payload,directory)
     import h5py
     import numpy as np
     config = payload['config']

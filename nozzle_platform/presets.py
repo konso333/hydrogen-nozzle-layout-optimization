@@ -60,8 +60,8 @@ class PresetStore:
     def __init__(self,root,models,*,builtin=None):
         self.root=Path(root).resolve();self.root.mkdir(parents=True,exist_ok=True)
         self.models=models;self.lock=threading.RLock();self.builtin_ids=set();self.builtin_problem=None
-        if builtin:
-            candidate=settings(json.loads(Path(builtin).read_text(encoding='utf-8')))
+        for path in ([] if not builtin else builtin if isinstance(builtin,(list,tuple)) else [builtin]):
+            candidate=settings(json.loads(Path(path).read_text(encoding='utf-8')))
             source=models.root/(candidate['model_reference']['source_sha256']+'.step')
             if source.is_file():
                 key=hashlib.sha256(encoded(candidate)).hexdigest();self.builtin_ids.add(key)
@@ -96,7 +96,7 @@ class PresetStore:
     def summary(self,key,document):
         return dict(preset_id=key,name=document['name'],model_name=document['model_reference']['name'],
             N=document['request']['design']['N'],family=document['request']['design']['family'],
-            source_sha256=document['model_reference']['source_sha256'],builtin=key in self.builtin_ids,
+            source_sha256=document['model_reference']['source_sha256'],builtin=key in self.builtin_ids,physical_model=document['request']['flow'].get('physical_model','h2-air'),
             available=True,scientific_eligible=False)
 
     def catalog(self):

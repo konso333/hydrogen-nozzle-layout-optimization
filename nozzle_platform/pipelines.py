@@ -16,12 +16,13 @@ from nozzle_platform.workflows import normalize_mesh,normalize_flow,save,sha256,
 from nozzle_platform.domains import FIELDS as DOMAIN_FIELDS,normalize as normalize_domain
 from nozzle_platform.design import layout_svg
 from validation import require_count,require_finite
+from nozzle_platform.mesh_reuse import compatibility as mesh_compatibility
 
 STAGES=('design','assembly','domain','mesh','flow','maps')
 FAMILIES={'rectangular','honeycomb','sunflower','ring'}
 class ResourcesUnavailable(ValueError):pass
 SOURCES=tuple(dict.fromkeys(IMPLEMENTATION+('nozzle_platform/pipelines.py','nozzle_platform/bounded.py',
-    'nozzle_platform/field_maps.py','nozzle_platform/design.py','nozzle_platform/domains.py','nozzle_platform/models.py','nozzle_platform/presets.py')))
+    'nozzle_platform/field_maps.py','nozzle_platform/design.py','nozzle_platform/layout_search.py','nozzle_platform/domains.py','nozzle_platform/models.py','nozzle_platform/presets.py','nozzle_platform/mesh_reuse.py')))
 
 
 def normalize(request):
@@ -35,12 +36,14 @@ def normalize(request):
         raise ValueError('一键任务自动关联方案与网格，请勿指定历史结果编号。')
     mesh=normalize_mesh(dict(result['mesh'],scheme_id='planned',domain_id='planned'))
     flow=normalize_flow(dict(result['flow'],scheme_id='planned',domain_id='planned',mesh_id='planned'))
-    if flow.get('compute_device','cpu')=='cpu' and flow.get('convergence_mode')!='gpu-validation':
+    air=flow.get('physical_model')=='air-isothermal-v1'
+    if not air and flow.get('compute_device','cpu')=='cpu' and flow.get('convergence_mode')!='gpu-validation':
         raise ValueError('本机一键 CPU 运行仅支持接入短测（最多 25 步、计算段 60 秒）；请选择接入短测或 GPU。')
     result['mesh']={k:v for k,v in mesh.items() if k not in ('scheme_id','domain_id')}
     result['flow']={k:v for k,v in flow.items() if k not in ('scheme_id','domain_id','mesh_id')}
     if set(comparison)-{'basis','cases','fuel_heat_input_kW','fuel_lhv_MJ_kg'} or comparison.get('basis') not in {'single','same-area','same-heat'}:
         raise ValueError('请选择单方案、相同安装面积或相同燃料热输入。')
+    if air and comparison['basis']=='same-heat':raise ValueError('单一空气冷流不计算燃料热输入；请选择单方案或相同安装面积。')
     if not isinstance(comparison.get('cases',[]),list):raise ValueError('附加方案需为列表。')
     cases=[dict(N=design.get('N'),family=design.get('family'))]+comparison.get('cases',[])
     if not 1<=len(cases)<=3 or (comparison['basis']=='single' and len(cases)!=1):raise ValueError('每次支持 1～3 个串行方案，单方案模式不接受附加方案。')
@@ -160,7 +163,7 @@ class PipelineStore:
         if not path.is_relative_to(self.output_root):raise ValueError('结果路径超出本机项目目录。')
         state['files'][name]=dict(path=str(path.relative_to(self.output_root)),sha256=digest or sha256(path),bytes=path.stat().st_size)
 
-    def start_from_mesh(self,key):
+    def start_from_mesh(self,key,*,iterations=None):
         old=self.status(key)
         if old['status'] not in {'failed','completed_with_failures'} or len(old['cases'])!=1:
             raise ValueError('仅支持单方案在冷流启动前中断后复用已检查网格。')
@@ -174,10 +177,15 @@ class PipelineStore:
         if self.workflows.active or self.workflows.reservation:raise ValueError('已有本机任务正在运行。')
         if row['mesh_id'] not in self.workflows.results:self.restore_mesh_record(key,old,row)
         mesh,_=self.workflows.get_result(row['mesh_id'],row['domain_id'],row['scheme_id'],'mesh')
-        if mesh.get('implementation_sha256')!={n:sha256(ROOT/n) for n in IMPLEMENTATION}:
+        compatibility=mesh_compatibility(mesh.get('implementation_sha256'),{n:sha256(ROOT/n) for n in IMPLEMENTATION})
+        if not compatibility['compatible']:
             raise ValueError('网格程序版本已变化，不能复用该历史网格。')
         request={k:copy.deepcopy(v) for k,v in old['config'].items() if k!='cases'}
-        return self.start(request,reuse_mesh=dict(source_job_id=key,mesh_id=row['mesh_id'],domain_id=row['domain_id'],scheme_id=row['scheme_id']))
+        if iterations is not None:
+            count=require_count(iterations,'iterations')
+            if request['flow'].get('physical_model')!='air-isothermal-v1' or count>request['flow']['iterations']:raise ValueError('仅空气冷流允许减少复用任务的步数上限，其他参数沿用原快照。')
+            request['flow']['iterations']=count
+        return self.start(request,reuse_mesh=dict(source_job_id=key,mesh_id=row['mesh_id'],domain_id=row['domain_id'],scheme_id=row['scheme_id'],compatibility=compatibility))
 
     def restore_mesh_record(self,key,old,row):
         """Restore only this lineage-bound completed mesh, never an active solver."""
@@ -190,7 +198,7 @@ class PipelineStore:
         current={n:sha256(ROOT/n) for n in IMPLEMENTATION}
         if (report.get('kind')!='mesh' or report.get('result_id')!=mid or report.get('config')!=expected
                 or job.get('kind')!='mesh' or job.get('config')!=expected
-                or report.get('implementation_sha256')!=current or job.get('implementation_sha256')!=current
+                or report.get('implementation_sha256')!=job.get('implementation_sha256') or not mesh_compatibility(report.get('implementation_sha256'),current)['compatible']
                 or report.get('engine')!=job.get('engine') or job.get('engine')!='mesh-flow-1'):
             raise ValueError('历史网格配置或程序版本不匹配。')
         domain=job['domain'];source=old['model_reference']['source_id']
@@ -345,8 +353,9 @@ class PipelineStore:
                     if seed:
                         if domain['domain_id']!=seed['domain_id'] or scheme['scheme_id']!=seed['scheme_id']:raise ValueError('恢复后的几何或工况引用改变，不能复用网格。')
                         mesh,_=self.workflows.get_result(seed['mesh_id'],domain['domain_id'],scheme['scheme_id'],'mesh')
-                        if mesh.get('implementation_sha256')!={n:sha256(ROOT/n) for n in IMPLEMENTATION}:raise ValueError('网格程序版本已变化，已停止复用。')
-                        row.update(mesh_job_id=seed['mesh_id'],mesh_reused_from_job=seed['source_job_id'])
+                        compatibility=mesh_compatibility(mesh.get('implementation_sha256'),{n:sha256(ROOT/n) for n in IMPLEMENTATION})
+                        if not compatibility['compatible']:raise ValueError('网格程序版本已变化，已停止复用。')
+                        row.update(mesh_job_id=seed['mesh_id'],mesh_reused_from_job=seed['source_job_id'],mesh_reuse_compatibility=compatibility)
                     else:
                         child=self.workflows._start('mesh',mesh_config,current,source,owner=key)
                         mesh=self.wait(state,row,'mesh',child,cancel)
@@ -367,9 +376,15 @@ class PipelineStore:
                     flow=self.wait(state,row,'flow',child,cancel);row['flow_id']=flow['result_id'];row['iterations']=flow['iterations_completed']
                     row['numerical_criteria_met']=flow['numerical_criteria_met'];row['gpu_validation_only']=flow.get('gpu_validation_only',False)
                     last=flow['history'][-1];row['pressure_drop_Pa']=last['area_weighted_total_pressure_drop_Pa']
-                    row['actual_fuel_mass_flow_kg_s']=last['mass_flow_kg_s']['fuel_inlet']
-                    row['actual_air_mass_flow_kg_s']=last['mass_flow_kg_s']['oxidizer_inlet']
-                    row['actual_fuel_heat_input_kW']=last['mass_flow_kg_s']['fuel_inlet']*config['comparison']['fuel_lhv_MJ_kg']*1000
+                    row['physical_model']=flow_config.get('physical_model','h2-air')
+                    if row['physical_model']=='air-isothermal-v1':
+                        row['center_air_mass_flow_kg_s']=last['mass_flow_kg_s']['fuel_inlet'];row['outer_air_mass_flow_kg_s']=last['mass_flow_kg_s']['oxidizer_inlet']
+                        row['actual_air_mass_flow_kg_s']=row['center_air_mass_flow_kg_s']+row['outer_air_mass_flow_kg_s'];row['actual_fuel_heat_input_kW']=None
+                        row['outlet_speed_distribution']=last['outlet_speed_distribution']
+                    else:
+                        row['actual_fuel_mass_flow_kg_s']=last['mass_flow_kg_s']['fuel_inlet']
+                        row['actual_air_mass_flow_kg_s']=last['mass_flow_kg_s']['oxidizer_inlet']
+                        row['actual_fuel_heat_input_kW']=last['mass_flow_kg_s']['fuel_inlet']*config['comparison']['fuel_lhv_MJ_kg']*1000
                     if config['comparison']['basis']=='same-heat':
                         target=config['comparison']['fuel_heat_input_kW'];row['heat_input_rule_verified']=abs(row['actual_fuel_heat_input_kW']/target-1)<=.001
                         if not row['heat_input_rule_verified']:row['comparison_error']='实际入口热输入与目标偏差超过 0.1%，该方案不满足同热输入比较规则。'
@@ -392,7 +407,7 @@ class PipelineStore:
                     self.check(state,cancel);self.stage(state,row,'maps','running','从实际保存场生成切面云图')
                     try:
                         row['section']=self.post(state,row,dict(operation='extract',case=str(source/'final.cas.h5'),data=str(source/'final.dat.h5'),
-                            output=str(local/'maps'),**config['section']),cancel,'extract_'+str(row['index']))
+                            output=str(local/'maps'),physical_model=flow_config.get('physical_model','h2-air'),**config['section']),cancel,'extract_'+str(row['index']))
                         row['maps_pending']=True;row['status']='completed' if row['numerical_criteria_met'] else 'not_converged'
                     except InterruptedError:raise
                     except Exception as error:
@@ -444,6 +459,7 @@ class PipelineStore:
     def summary(self,state):
         folder=self.folders[state['job_id']]
         basis=state['config']['comparison']['basis'];rows=state['cases']
+        air=state['config']['flow'].get('physical_model')=='air-isothermal-v1'
         if basis=='same-area':
             areas=[r.get('installation_area_mm2') for r in rows];rule=all(a is not None for a in areas) and max(areas)-min(areas)<=1e-8*max(areas)
         elif basis=='same-heat':rule=all(r.get('heat_input_rule_verified') is True for r in rows)
@@ -451,8 +467,12 @@ class PipelineStore:
         state.update(comparison_rule_verified=rule,recommended_case_id=None,comparison_eligible=False)
         with (folder/'comparison.csv').open('w',encoding='utf-8-sig',newline='') as stream:
             fields=['case','N','family','status','installation_area_mm2','actual_fuel_heat_input_kW','actual_air_mass_flow_kg_s','iterations','numerical_criteria_met','fuel_pressure_drop_Pa','air_pressure_drop_Pa','reason']
+            if air:fields=['case','N','family','status','installation_area_mm2','center_air_mass_flow_kg_s','outer_air_mass_flow_kg_s','actual_air_mass_flow_kg_s','iterations','numerical_criteria_met','center_pressure_drop_Pa','outer_pressure_drop_Pa','reason']
             writer=csv.DictWriter(stream,fieldnames=fields);writer.writeheader()
-            for row in rows:writer.writerow(dict(case=row['index'],N=row['N'],family=row['family'],status=row['status'],installation_area_mm2=row.get('installation_area_mm2'),actual_fuel_heat_input_kW=row.get('actual_fuel_heat_input_kW'),actual_air_mass_flow_kg_s=row.get('actual_air_mass_flow_kg_s'),iterations=row.get('iterations'),numerical_criteria_met=row.get('numerical_criteria_met'),fuel_pressure_drop_Pa=row.get('pressure_drop_Pa',{}).get('fuel_inlet'),air_pressure_drop_Pa=row.get('pressure_drop_Pa',{}).get('oxidizer_inlet'),reason=row.get('error',row.get('map_error',row.get('comparison_error','')))))
+            for row in rows:
+                record=dict(case=row['index'],N=row['N'],family=row['family'],status=row['status'],installation_area_mm2=row.get('installation_area_mm2'),actual_fuel_heat_input_kW=row.get('actual_fuel_heat_input_kW'),actual_air_mass_flow_kg_s=row.get('actual_air_mass_flow_kg_s'),iterations=row.get('iterations'),numerical_criteria_met=row.get('numerical_criteria_met'),fuel_pressure_drop_Pa=row.get('pressure_drop_Pa',{}).get('fuel_inlet'),air_pressure_drop_Pa=row.get('pressure_drop_Pa',{}).get('oxidizer_inlet'),reason=row.get('error',row.get('map_error',row.get('comparison_error',''))))
+                if air:record.update(center_air_mass_flow_kg_s=row.get('center_air_mass_flow_kg_s'),outer_air_mass_flow_kg_s=row.get('outer_air_mass_flow_kg_s'),center_pressure_drop_Pa=record['fuel_pressure_drop_Pa'],outer_pressure_drop_Pa=record['air_pressure_drop_Pa'])
+                writer.writerow({n:record.get(n) for n in fields})
         report={k:v for k,v in state.items() if k!='files'};save(folder/'summary.json',report)
         self.add_file(state,folder/'comparison.csv','comparison.csv');self.add_file(state,folder/'summary.json','summary.json')
         def cell(value):return '未取得' if value is None else str(value).replace('|','／').replace('\n',' ')
@@ -461,8 +481,13 @@ class PipelineStore:
                '当前数据为有界冷流试算；未收敛、物理适用性和网格独立性未验证，不提供正式方案排名。','',
                '| 方案 | N | 排列 | 安装面积 / mm² | 燃料热输入 / kW | 空气流量 / kg·s⁻¹ | 步数 | 状态 |',
                '|---|---|---|---|---|---|---|---|']
+        if air:lines=['# 首版定温空气冷流报告','',f"任务：{state['job_id']}",f"比较规则：{basis}；条件核对：{rule}",'',
+            '中心和外围供气通道均为空气。采用定温常密度／常黏度层流模型，不求解组分或能量方程，不输出燃料热输入、氢气转化或温度场。',
+            '数值收敛、层流物理适用性和网格独立性分别标注；数据可导出不表示可用于正式优选。','',
+            '| 方案 | N | 排列 | 安装面积 / mm² | 中心空气 / kg·s⁻¹ | 外围空气 / kg·s⁻¹ | 步数 | 状态 |','|---|---|---|---|---|---|---|---|']
         for row in rows:
-            lines.append('| '+' | '.join(cell(row.get(n)) for n in ['index','N','family','installation_area_mm2','actual_fuel_heat_input_kW','actual_air_mass_flow_kg_s','iterations','status'])+' |')
+            columns=['index','N','family','installation_area_mm2',*(['center_air_mass_flow_kg_s','outer_air_mass_flow_kg_s'] if air else ['actual_fuel_heat_input_kW','actual_air_mass_flow_kg_s']),'iterations','status']
+            lines.append('| '+' | '.join(cell(row.get(n)) for n in columns)+' |')
             reason=row.get('error',row.get('map_error',row.get('comparison_error')))
             if reason:lines.extend(['',f"方案 {row['index']}：{cell(reason)}",''])
             if row.get('restart_message'):lines.extend(['',f"方案 {row['index']} 重读检查：{cell(row['restart_message'])}",''])

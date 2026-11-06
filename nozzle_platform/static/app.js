@@ -5,6 +5,7 @@ const familyNames={rectangular:"方阵",honeycomb:"蜂巢",sunflower:"向日葵"
 const fmt=(v,d=3)=>v===null||v===undefined?"—":Number(v).toLocaleString("zh-CN",{maximumFractionDigits:d});
 function notice(message,type=""){ $("notice").textContent=message;$("notice").className="notice "+type; }
 function availability(){
+  for(const button of document.querySelectorAll("#design-assist-options button"))button.disabled=state.busy;
   for(const element of document.querySelectorAll("form input,form select,form button"))element.disabled=state.busy;
   $("generate").disabled=state.busy||!state.model;
   for(const id of ["export-scheme","export-cad","save-image"])$(id).disabled=state.busy||!state.scheme;
@@ -12,6 +13,9 @@ function availability(){
   simulationAvailability();
   pipelineAvailability();
   presetAvailability();
+  for(const id of ["start-angle","sweep-angle"])$(id).disabled=state.busy||$("region").value!=="sector";
+  $("rotation").disabled=state.busy||$("spacing-mode").value!=="manual";
+  $("spacing").disabled=state.busy||$("spacing-mode").value!=="manual"||!["rectangular","honeycomb"].includes($("family").value);
 }
 function busy(on,text="处理中…"){state.busy=on;$("busy-overlay").hidden=!on;$("busy-text").textContent=text;availability();}
 async function api(path,body,headers={}){
@@ -29,6 +33,7 @@ function setSourceReference(){
   ["origin-x","origin-y","origin-z"].forEach((id,i)=>{$(id).value=source?.default_origin_mm?.[i]??"";});
 }
 function invalidate(message=false){
+  clearDesignAdvice();
   invalidateDomain();
   state.scheme=null;$("coordinate-rows").innerHTML='<tr><td colspan="5" class="empty-table">参数已更新，生成后显示坐标</td></tr>';
   for(const id of ["metric-count","metric-spacing","metric-gap","metric-wall"])$(id).textContent="—";
@@ -73,7 +78,7 @@ function parameters(){
   return {model_id:state.model.model_id,N:val("count"),family:$("family").value,region:$("region").value,
     radius_mm:val("radius"),start_angle_deg:$("region").value==="circle"?0:val("start-angle"),sweep_angle_deg:$("region").value==="circle"?360:val("sweep-angle"),
     diameter_mm:val("diameter"),edge_gap_mm:val("gap"),wall_clearance_mm:val("wall"),spacing_mode:$("spacing-mode").value,
-    spacing_mm:val("spacing"),rotation_deg:val("rotation")};
+    spacing_mm:$("spacing-mode").value==="manual"&&["rectangular","honeycomb"].includes($("family").value)?val("spacing"):val("diameter")+val("gap"),rotation_deg:$("spacing-mode").value==="manual"?val("rotation"):0};
 }
 function planSvg(scheme){
   const r=scheme.request,R=r.radius_mm,size=R*1.15;let boundary;
@@ -139,7 +144,7 @@ for(const id of ["count","region","radius","start-angle","sweep-angle","family",
 $("design-form").addEventListener("submit",async event=>{
   event.preventDefault();if(!state.model||state.busy)return;
   let request;try{request=parameters();}catch(error){notice(error.message,"error");return;}
-  invalidate();busy(true,"正在生成并检查阵列…");$("viewport").scrollIntoView({block:"center",behavior:"auto"});try{const scheme=await api("/api/generate",request);if(!scheme.feasible){notice(scheme.message,"error");$("result-note").textContent=scheme.search_scope;$("viewer-status").textContent="未找到满足当前约束的排布";}else display(scheme);}catch(error){notice(error.message,"error");}finally{busy(false);}
+  invalidate();busy(true,"正在寻找排布并核验调整建议…");$("viewport").scrollIntoView({block:"center",behavior:"auto"});try{await generateAssistedDesign(request);}catch(error){notice(error.message,"error");}finally{busy(false);}
 });
 $("view-3d").addEventListener("click",()=>switchView("3d"));$("view-plan").addEventListener("click",()=>switchView("plan"));
 $("reset-view").addEventListener("click",()=>state.viewer?.reset());

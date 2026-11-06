@@ -20,6 +20,9 @@ SPECIES_TRANSPORT = {
 
 
 def validate_selection(config):
+    if config.get('physical_model')=='air-isothermal-v1':
+        from nozzle_platform.air_model import validate_selection as validate_air
+        return validate_air(config)
     device = config.get('compute_device', 'cpu')
     transport = config.get('transport_model', ORIGINAL_TRANSPORT)
     mode = config.get('convergence_mode', 'trial')

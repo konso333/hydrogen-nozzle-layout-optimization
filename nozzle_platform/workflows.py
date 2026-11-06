@@ -23,13 +23,13 @@ MESH_OPTIONS = {'algorithm','curvature_samples','passage_size_mm','size_factor',
     'mesh_method','layer_first_height_mm','layer_count','layer_thickness_mm','local_volume_refinement'}
 FLOW_KEYS = {'mesh_id','domain_id','scheme_id','fuel_velocity_m_s','oxidizer_velocity_m_s',
              'temperature_K','oxidizer_o2_mass_fraction','iterations'}
-FLOW_OPTIONS = {'convergence_mode','time_budget_seconds','compute_device','transport_model','species_solver_control'}
+FLOW_OPTIONS = {'convergence_mode','time_budget_seconds','compute_device','transport_model','species_solver_control','physical_model'}
 IMPLEMENTATION = ('nozzle_platform/workflows.py','nozzle_platform/workflow_worker.py',
     'nozzle_platform/volume_mesh.py','nozzle_platform/layered_mesh.py','nozzle_platform/poly_mesh.py','nozzle_platform/domain_cad.py','nozzle_platform/flow_solver.py',
     'nozzle_platform/flow_validation.py','nozzle_platform/mesh_quality.py','nozzle_platform/convergence.py','nozzle_platform/mesh_study.py','nozzle_platform/grid_convergence.py','nozzle_platform/field_profiles.py',
     'nozzle_platform/probe_points.py','nozzle_platform/outlet_sampling.py',
     'nozzle_platform/solver_device.py','nozzle_platform/species_controls.py','nozzle_platform/field_health.py','nozzle_platform/restart_check.py','nozzle_platform/restart_worker.py','coldflow_trial/solver.py','coldflow_trial/processes.py',
-    'fluent_execution/process.py')
+    'fluent_execution/process.py','nozzle_platform/air_model.py','nozzle_platform/air_solver.py')
 
 
 def sha256(path):
@@ -104,6 +104,11 @@ def normalize_mesh(request):
 
 
 def normalize_flow(request):
+    if isinstance(request,dict) and request.get('physical_model')=='air-isothermal-v1':
+        from nozzle_platform.air_model import normalize as normalize_air
+        return normalize_air(request)
+    if isinstance(request,dict) and request.get('physical_model','h2-air')!='h2-air':
+        raise ValueError('请选择已支持的物理模型。')
     if not isinstance(request,dict) or not FLOW_KEYS<=set(request) or set(request)-FLOW_KEYS-FLOW_OPTIONS:
         raise ValueError('冷流参数缺失或包含未知字段。')
     result = dict(request)
@@ -164,7 +169,8 @@ class WorkflowStore:
 
     def capability(self):
         available = all(Path(self.fluent[key]).is_file() for key in ('python','executable'))
-        return {'fluent_available':available,'supported_version':'25.2','model':'非反应氢气／空气 · 稳态层流',
+        return {'fluent_available':available,'supported_version':'25.2','model':'首版定温空气冷流；氢气／空气实验模板保留',
+            'physical_models':['air-isothermal-v1','h2-air'],'air_model_formal_physics_validated':False,
             'preferred_compute_device':self.fluent.get('preferred_compute_device','cpu'),
             'gpu_validation_available':available,'gpu_formal_physics_validated':False,
             'note':'已找到本机程序；许可证与网格质量在启动时检查。' if available else '未找到 Fluent 25.2 或 PyFluent 环境；仍可生成并导出体网格。'}
@@ -291,7 +297,7 @@ class WorkflowStore:
                                 self.jobs[job_id]['message'] = message
                         except (ValueError,KeyError,OSError):
                             pass
-                    if (payload['config'].get('convergence_mode')=='gpu-validation'
+                    if ((payload['config'].get('convergence_mode')=='gpu-validation' or payload['config'].get('physical_model')=='air-isothermal-v1')
                             and payload['config'].get('compute_device','cpu')=='cpu'
                             and progress_data.get('compute_started_monotonic') is not None
                             and time.monotonic()-progress_data['compute_started_monotonic']>60):
@@ -316,7 +322,12 @@ class WorkflowStore:
                 if kind=='flow' and payload['config'].get('convergence_mode')=='gpu-validation':
                     names.append('execution_profile.json')
                     if payload['config'].get('compute_device')=='gpu':names.append('device_evidence.json')
-                if kind=='flow':names.extend(['field_health.json','species_controls.json'])
+                if kind=='flow':
+                    names.append('field_health.json')
+                    if payload['config'].get('physical_model')=='air-isothermal-v1':
+                        names.extend(['air_model.json','execution_profile.json'])
+                        if payload['config'].get('compute_device')=='gpu':names.append('device_evidence.json')
+                    else:names.append('species_controls.json')
                 result.update(kind=kind,result_id=job_id,**{k:payload['config'][k] for k in ('domain_id','scheme_id')},
                     elapsed_seconds=time.monotonic()-started,
                     config=payload['config'],source_sha256=payload['domain']['source_sha256'],

@@ -39,7 +39,8 @@ class PlatformServer(ThreadingHTTPServer):
         self.workflows = WorkflowStore(Path(root) / "workflows", self.domains, fluent=fluent)
         self.reviews = ReviewStore(Path(root) / 'verification_reports')
         self.pipelines = PipelineStore(Path(root) / 'pipelines',self.designs,self.domains,self.workflows)
-        self.presets = PresetStore(Path(root)/'presets',self.models,builtin=Path(__file__).parents[1]/'examples/b0_coldflow_preset.json')
+        examples=Path(__file__).parents[1]/'examples'
+        self.presets = PresetStore(Path(root)/'presets',self.models,builtin=[examples/n for n in ['b0_air_coldflow_preset.json','b0_air_pair_preset.json','b0_coldflow_preset.json']])
         super().__init__(address, Handler)
 
 
@@ -138,6 +139,7 @@ class Handler(BaseHTTPRequestHandler):
                  "/domain.js":"domain.js","/domain.css":"domain.css",'/simulation.js':'simulation.js','/simulation.css':'simulation.css',
                  '/study.js':'study.js','/pipeline.js':'pipeline.js','/pipeline.css':'pipeline.css','/validation.html':'validation.html','/validation.js':'validation.js','/validation.css':'validation.css'}
         files.update({'/presets.js':'presets.js','/presets.css':'presets.css'})
+        files.update({'/design_assist.js':'design_assist.js','/design_assist.css':'design_assist.css'})
         if path not in files:
             return self.json({"error": "页面不存在。"}, 404)
         file = STATIC / files[path]
@@ -169,10 +171,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(self.server.models.load(data.get("source_id"), axis=data.get("axis", "y"), origin=data.get("origin")))
             if path == "/api/generate":
                 return self.json(self.server.designs.create(data))
+            if path == "/api/design-assist":
+                return self.json(self.server.designs.advise(data))
+            if path == "/api/design-assist-adopt":
+                return self.json(self.server.designs.adopt(data))
             if path=='/api/pipeline':return self.json(self.server.pipelines.start(data),202)
             if path=='/api/pipeline-from-mesh':
-                if set(data)!={'job_id'}:raise ValueError('网格复用仅接受原任务编号，参数沿用其快照。')
-                return self.json(self.server.pipelines.start_from_mesh(data['job_id']),202)
+                if 'job_id' not in data or set(data)-{'job_id','iterations'}:raise ValueError('网格复用仅接受原任务编号及可选的减少步数上限，物理参数沿用快照。')
+                return self.json(self.server.pipelines.start_from_mesh(data['job_id'],iterations=data.get('iterations')),202)
             if path=='/api/pipeline-export':return self.json(self.server.pipelines.export(data.get('job_id')))
             if path=='/api/pipeline-source':return self.json(self.server.pipelines.restore_source(data.get('job_id')))
             if path=='/api/pipeline-check':return self.json(self.server.pipelines.preflight(data))
