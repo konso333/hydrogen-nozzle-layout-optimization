@@ -14,6 +14,10 @@ from shape_search import FAMILIES, run_shape_search
 from validation import require_count, require_finite
 
 
+MAX_ARRAY_NOZZLES = 128
+MAX_ARRAY_PREVIEW_TRIANGLES = 2_000_000
+
+
 def number(value, label, *, minimum=0, strict=False):
     value = require_finite(value, label)
     if value < minimum or (strict and value == minimum):
@@ -31,12 +35,12 @@ def generate(request, model):
     if request["model_id"] != model["model_id"]:
         raise ValueError("设计与模型不一致。")
     count = require_count(request["N"], "N")
-    if count > 128:
-        raise ValueError("首版每个方案最多 128 个喷嘴。")
+    if count > MAX_ARRAY_NOZZLES:
+        raise ValueError(f"首版每个方案最多 {MAX_ARRAY_NOZZLES} 个喷嘴。")
     family = request["family"]
     if family not in FAMILIES:
         raise ValueError("请选择蜂巢、向日葵、方阵或环形。")
-    if count * model["triangle_count"] > 2000000:
+    if count * model["triangle_count"] > MAX_ARRAY_PREVIEW_TRIANGLES:
         raise ValueError("阵列预览超过 200 万三角形预算，请减少 N 或简化单喷嘴。")
     radius = number(request["radius_mm"], "安装区域半径", strict=True)
     if radius > 5000:
@@ -207,6 +211,45 @@ class DesignStore:
         annotate(scheme,report['requested_design'],'explicit_suggestion_click')
         with self.lock:self.schemes[scheme['scheme_id']]=scheme
         return scheme
+
+    def compare(self,payload):
+        import copy
+        from nozzle_platform.geometry_compare import compare
+        if not isinstance(payload.get('design'),dict):raise ValueError('请提供完整的 design 参数对象。')
+        result=compare(payload,self.models.get(payload['design'].get('model_id')))
+        result['advice_id']=uuid.uuid4().hex
+        for index,suggestion in enumerate(result['suggestions']):suggestion['suggestion_id']=str(index)
+        with self.lock:
+            if len(self.advice_reports)>=32:self.advice_reports.pop(next(iter(self.advice_reports)))
+            self.advice_reports[result['advice_id']]=copy.deepcopy(result)
+        return result
+
+    def export_comparison(self,payload):
+        import copy
+        from nozzle_platform.geometry_library import geometry_files
+        from nozzle_platform.geometry_records import canonical,verify_scheme
+        if set(payload)!={'advice_id','current_design'}:raise ValueError('几何比较导出需要比较编号与当前参数快照。')
+        with self.lock:report=copy.deepcopy(self.advice_reports.get(payload['advice_id']))
+        if not report or report.get('kind')!='geometry_comparison':raise ValueError('比较记录不存在或已过期，请重新比较。')
+        if report['requested_design']!=payload['current_design']:raise ValueError('参数已改变，请重新比较后导出。')
+        files={'comparison.json':canonical(report).encode('utf-8')};stream=io.StringIO(newline='')
+        columns=['family','N','region','radius_mm','feasible','minimum_center_distance_mm','minimum_edge_gap_mm','minimum_wall_clearance_mm','boundary_area_mm2','same_coordinates_as','reason']
+        writer=csv.DictWriter(stream,fieldnames=columns,lineterminator='\n');writer.writeheader()
+        for row in report['rows']:
+            record=dict(family=row['family'],N=row['N'],region=report['requested_design']['region'],radius_mm=report['requested_design']['radius_mm'],feasible=row['feasible'],same_coordinates_as=row.get('same_coordinates_as'),reason=row.get('reason',''))
+            if row['feasible']:
+                verify_scheme(row['scheme']);record.update({k:row['summary'].get(k) for k in columns if k in row['summary']})
+                for name,raw in geometry_files(row['scheme']).items():files[row['family']+'/'+name]=raw
+            writer.writerow(record)
+        files['comparison.csv']=stream.getvalue().encode('utf-8-sig')
+        files['README.txt']='同条件几何比较\n四种排列共用模型、数量、区域与几何约束。仅几何指标，不包含CFD或燃烧排名。\n各family目录保存已核验的方案、坐标和二维图；未找到的方案只保留状态。\n坐标相同只忽略编号顺序，不进行平移、旋转对齐或近似匹配。\n'.encode('utf-8')
+        files['manifest.json']=canonical({n:hashlib.sha256(raw).hexdigest() for n,raw in files.items()}).encode('utf-8')
+        directory=self.root/('comparison_'+uuid.uuid4().hex);directory.mkdir();path=directory/'geometry_comparison.zip'
+        with zipfile.ZipFile(path,'w',zipfile.ZIP_DEFLATED) as z:
+            for name,raw in files.items():z.writestr(name,raw)
+        token=uuid.uuid4().hex
+        with self.lock:self.downloads[token]=path
+        return dict(download_url='/downloads/'+token,filename='geometry_comparison_'+token[:10]+'.zip',solver_started=False)
 
     def export(self, scheme_id, *, cad=False):
         with self.lock:

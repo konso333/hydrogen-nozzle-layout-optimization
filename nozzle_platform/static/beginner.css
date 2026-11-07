@@ -1,0 +1,82 @@
+.beginner-mode main { display: block; }
+.beginner-mode .workspace { max-width: 1040px; margin: 0 auto; }
+.beginner-mode .sidebar,
+.beginner-mode .topbar nav,
+.beginner-mode .workspace-heading,
+.beginner-mode #notice,
+.beginner-mode #design-assistance,
+.beginner-mode #geometry-library,
+.beginner-mode #view-domain,
+.beginner-mode #view-mesh,
+.beginner-mode .viewer-card:has(#view-plan.selected) #reset-view,
+.beginner-mode .metrics,
+.beginner-mode .results-card { display: none; }
+#quick-mode { display: inline; }
+.beginner-mode #workspace-mode { display: inline; font-size: 13px; }
+.beginner-mode #beginner-result[hidden] ~ .viewer-card { display: none; }
+
+#beginner-panel {
+  background: #fff;
+  border: 1px solid #d4e5df;
+  border-radius: 16px;
+  padding: clamp(20px, 4vw, 36px);
+  margin-bottom: 18px;
+  line-height: 1.6;
+}
+.beginner-intro .eyebrow { color: #166b59; font-size: 12px; letter-spacing: .1em; }
+.beginner-intro h1 { font-size: clamp(24px, 4vw, 35px); margin: 4px 0 3px; }
+.beginner-intro p { margin: 0 0 20px; color: #49646a; font-size: 15px; }
+#beginner-form { display: block; }
+.beginner-model {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #deebe5;
+  border-radius: 8px;
+  background: #f5faf7;
+}
+.beginner-model p { margin: 0; overflow-wrap: anywhere; font-weight: 600; }
+.beginner-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.beginner-actions .button { white-space: normal; min-height: 40px; font-size: 13px; }
+#beginner-panel label { color: var(--ink); font-size: 14px; font-weight: 650; }
+#beginner-panel input, #beginner-panel select { min-height: 44px; font-size: 16px; }
+.beginner-count input { max-width: 200px; }
+#beginner-range, #beginner-angle-hint, #beginner-scope { margin: 6px 0 0; color: #4e666c; }
+#beginner-options { border-top: 1px solid #e4ece8; padding-top: 11px; }
+#beginner-options summary { color: #25574d; font-size: 14px; font-weight: 650; }
+.beginner-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
+#beginner-generate { margin-top: 14px; width: min(260px, 100%); font-size: 16px; }
+#beginner-status {
+  border: 1px solid #d2e7de;
+  background: #f2faf6;
+  border-radius: 7px;
+  padding: 9px 12px;
+  margin: 14px 0 0;
+  overflow-wrap: anywhere;
+}
+#beginner-status[data-kind="error"] { color: #843b1d; background: #fff4eb; border-color: #edd8cc; }
+#beginner-suggestions { margin-top: 10px; }
+#beginner-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: #e9f5ef;
+  border: 1px solid #cfe4d9;
+  border-radius: 10px;
+  margin: 0 0 10px;
+  padding: 14px 18px;
+}
+#beginner-result h2 { font-size: 21px; margin: 0 0 3px; }
+#beginner-result p { margin: 0; line-height: 1.6; }
+
+@media (max-width: 600px) {
+  .beginner-fields { grid-template-columns: 1fr; }
+  .beginner-mode .viewer-footer > span:last-child { display: none; }
+  .beginner-mode #plan-view { inset: 45px 14px 28px; }
+  .beginner-mode .viewport { height: 320px; }
+}

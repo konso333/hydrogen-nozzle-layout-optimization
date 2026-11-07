@@ -162,6 +162,24 @@ def test_browser_page_is_local_and_has_no_remote_dependency(server):
         assert call(server,"GET",asset)[0]==200,asset
 
 
+def test_starter_model_uses_bundled_step_without_user_archive(server, monkeypatch):
+    def preview(job):
+        source = Path(job["source"])
+        assert source.read_bytes() == (Path(__file__).resolve().parents[1] / "nozzle_platform/starter_nozzle.step").read_bytes()
+        assert job["axis"] == "y" and job["origin"] == [0, 0, 0]
+        return {"triangle_count": 100, "solid_count": 1}
+
+    monkeypatch.setattr(server.models, "cad", preview)
+    headers = {"Content-Type": "application/json", "Origin": f"http://127.0.0.1:{server.server_port}"}
+    assert call(server, "POST", "/api/starter-model", b'{"axis":"x"}', headers)[0] == 400
+    status, body, _ = call(server, "POST", "/api/starter-model", b"{}", headers)
+    assert status == 200
+    result = json.loads(body)
+    assert result["model"]["label"] == "通用示例喷嘴"
+    assert result["model"]["source_id"] == result["models"][0]["source_id"]
+    assert call(server, "POST", "/api/starter-model", b"{}", headers)[1] == body
+
+
 def test_foreign_origin_and_host_cannot_operate_local_cad(server):
     assert call(server,"POST","/api/load-model",b"{}",{"Origin":"https://elsewhere.example"})[0]==403
     assert call(server,"GET","/api/bootstrap",headers={"Host":"elsewhere.example"})[0]==403

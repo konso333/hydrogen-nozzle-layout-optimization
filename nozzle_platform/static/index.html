@@ -9,13 +9,15 @@
   <link rel="stylesheet" href="/pipeline.css">
   <link rel="stylesheet" href="/presets.css">
   <link rel="stylesheet" href="/design_assist.css">
-  <script src="/viewer.js" defer></script><script src="/domain.js" defer></script><script src="/simulation.js" defer></script><script src="/study.js" defer></script><script src="/pipeline.js" defer></script><script src="/presets.js" defer></script><script src="/design_assist.js" defer></script><script src="/app.js" defer></script>
+  <link rel="stylesheet" href="/geometry_workspace.css">
+  <link rel="stylesheet" href="/beginner.css">
+  <script src="/viewer.js" defer></script><script src="/domain.js" defer></script><script src="/simulation.js" defer></script><script src="/study.js" defer></script><script src="/pipeline.js" defer></script><script src="/presets.js" defer></script><script src="/design_assist.js" defer></script><script src="/geometry_workspace.js" defer></script><script src="/beginner.js" defer></script><script src="/app.js" defer></script>
 </head>
 <body>
   <header class="topbar">
     <div class="brand"><span class="brand-icon">✣</span><div>NOZZLE LAB<small>多喷嘴设计工作台</small></div></div>
     <nav aria-label="开发阶段"><span class="step active"><b>01</b> 阵列设计</span><a class="step domain-step" href="#domain-form"><b>02</b> 流体域与边界</a><a class="step domain-step" href="#simulation-form"><b>03</b> 网格与冷流</a></nav>
-    <a class="local" href="/validation.html">仿真验证报告 ↗</a>
+    <div class="workspace-links"><a id="quick-mode" class="local" href="/">快速排布</a><a id="workspace-mode" class="local" href="/?mode=geometry">仅做几何设计 ↗</a><a class="local validation-link" href="/validation.html">仿真验证报告 ↗</a></div>
   </header>
   <main>
     <aside class="sidebar">
@@ -36,7 +38,7 @@
             <label for="preset-select">已保存的整套配置</label><select id="preset-select"><option value="">暂无预设</option></select>
             <button id="preset-load" type="button" class="button secondary">载入所选预设</button>
             <p class="hint" id="preset-note">预设绑定具体 STEP 和参考坐标。载入只填入参数，不启动求解；供气模板需重新确认。</p>
-            <details><summary>保存与备份</summary><label for="preset-name">新预设名称</label><input id="preset-name" type="text" maxlength="60" placeholder="例如：B0 双喷嘴冷流">
+            <details id="preset-backup"><summary>保存与备份</summary><label for="preset-name">新预设名称</label><input id="preset-name" type="text" maxlength="60" placeholder="例如：B0 双喷嘴冷流">
               <button id="preset-save" type="button" class="button secondary">保存当前整套参数</button>
               <div class="preset-actions"><button id="preset-export" type="button" class="button secondary">导出参数 JSON</button><button id="preset-import" type="button" class="button secondary">导入参数 JSON</button></div>
               <input id="preset-file" type="file" accept=".json,application/json" hidden><p class="hint">参数 JSON 不包含实体；在另一台电脑使用时，先导入相同的 STEP。</p>
@@ -61,7 +63,7 @@
           <label class="check-label"><input id="explore-families" type="checkbox" checked><span>所选排列未找到时，允许自动改用其他排列，保持数量与几何约束</span></label>
           <p class="hint">数量与安装半径不会自动改变；需要调整时先给出已核验的建议，由你点击采用。这里只做几何设计，不启动 Fluent。</p>
         </section>
-        <div class="generate-wrap"><button id="generate" class="button primary" type="submit" disabled><span>智能生成阵列</span><span>↗</span></button><p>安装参数为可编辑示例，尚未作为制造要求确认。</p></div>
+        <div class="generate-wrap"><button id="generate" class="button primary" type="submit" disabled><span>智能生成阵列</span><span>↗</span></button><button id="compare-designs" class="button secondary" type="button" disabled>比较四种排列</button><p>比较保持同一模型、N、安装区域与间隙，只看几何，不运行 Fluent。安装参数尚未作为制造要求确认。</p></div>
       </form>
       <form id="pipeline-settings">
         <section class="form-section">
@@ -151,13 +153,44 @@
       </form>
     </aside>
     <div class="workspace">
+      <section id="beginner-panel" hidden aria-labelledby="beginner-title">
+        <div class="beginner-intro">
+          <span class="eyebrow">快速排布</span>
+          <h1 id="beginner-title">你想排多少个喷嘴？</h1>
+          <p>输入数量，网站自动排好位置，给你看俯视图和三维装配。</p>
+        </div>
+        <form id="beginner-form" novalidate>
+          <div class="beginner-model"><p id="beginner-model" aria-live="polite">正在准备示例喷嘴…</p><div class="beginner-actions"><button id="beginner-import" type="button" class="button secondary" title="选择单喷嘴的 STEP 或 STP 文件" disabled>导入我的模型</button><button id="beginner-example" type="button" class="button secondary" hidden>使用示例</button></div></div>
+          <div class="beginner-count"><label for="beginner-count">喷嘴数量（个）</label><input id="beginner-count" type="number" min="1" max="128" step="1" value="11" required aria-describedby="beginner-range"><p id="beginner-range">可先用 11 个试一遍。</p></div>
+          <details id="beginner-options">
+            <summary>我有安装尺寸，或想指定排列</summary>
+            <div class="beginner-fields">
+              <div><label for="beginner-region">安装区域</label><select id="beginner-region"><option value="auto">让网站安排一个圆形区域</option><option value="circle">用我的圆形安装区</option><option value="sector">用我的扇形安装区</option></select></div>
+              <div><label for="beginner-family">排列方式</label><select id="beginner-family"><option value="auto">让网站推荐</option><option value="rectangular">方阵 · 像棋盘</option><option value="honeycomb">蜂巢 · 错开排</option><option value="sunflower">向日葵 · 从中心向外</option><option value="ring">环形 · 沿圆环排</option></select></div>
+              <div id="beginner-radius-field" hidden><label for="beginner-radius">安装区半径（mm）</label><input id="beginner-radius" type="number" min="0.001" max="5000" step="any" placeholder="圆心到外边缘的距离"></div>
+              <div id="beginner-angle-field" hidden><label for="beginner-angle">扇形张角（°）</label><input id="beginner-angle" type="number" min="0.001" max="359.999" step="any" value="120" aria-describedby="beginner-angle-hint"><p id="beginner-angle-hint">半圆是 180°，四分之一圆是 90°。</p></div>
+            </div>
+          </details>
+          <p id="beginner-scope">未填安装尺寸时，网站会选一个便于试排的大小。此处生成的是几何图和坐标。</p>
+          <button id="beginner-generate" class="button primary" type="submit" disabled>生成排布 <span aria-hidden="true">↗</span></button>
+        </form>
+        <p id="beginner-status" role="status" aria-live="polite" hidden></p>
+        <div id="beginner-suggestions" class="beginner-actions" hidden></div>
+      </section>
+      <section id="beginner-result" hidden aria-label="你的排布结果">
+        <div><h2 id="beginner-result-title" tabindex="-1"></h2><p id="beginner-result-details"></p></div>
+        <button id="beginner-download" type="button" class="button secondary">下载排布和坐标</button>
+      </section>
       <div class="workspace-heading"><div><span class="eyebrow">ARRAY DESIGN STUDIO</span><h2>从一个喷嘴，到自动仿真<span>。</span></h2><p id="workspace-caption">配置完成后，一键生成阵列、构建流体域、划分网格并运行 Fluent 冷流。</p></div><span class="version">一键冷流工作流</span></div>
       <div id="notice" class="notice" role="status" aria-live="polite">正在读取本地模型目录…</div>
+      <section id="geometry-intro" class="geometry-panel" hidden><h3>仅几何设计工作台</h3><p>载入模型 → 设置数量与区域 → 智能生成或比较四种排列 → 选择并检查装配 → 保存到方案库或导出。</p><p class="hint">此入口不提交流体域、网格或 Fluent 任务。大阵列几何成功不代表 CFD 已验证，几何指标不作燃烧性能排名。</p></section>
       <section id="design-assistance" class="design-assistance" aria-label="几何设计助手" hidden>
         <h3>几何设计助手</h3><p id="design-assist-message" role="status" aria-live="polite"></p>
         <ul id="design-assist-reasons"></ul><div id="design-assist-options"></div>
         <p class="hint" id="design-assist-scope"></p>
       </section>
+      <section id="geometry-comparison" class="geometry-panel" hidden aria-label="四种排列几何比较"><div class="geometry-panel-heading"><h3>同条件排列比较</h3><button id="geometry-compare-export" class="button secondary" type="button" disabled>导出几何比较包</button></div><p id="geometry-compare-summary"></p><div id="geometry-candidates" class="geometry-candidates"></div><p class="hint">只标记同模型、同区域和约束下完全相同的坐标集合，忽略编号顺序；不进行平移、旋转对齐，也不合并近似坐标，不自动跳过 CFD。</p></section>
+      <section id="geometry-library" class="geometry-panel" aria-label="几何方案库"><div class="geometry-panel-heading"><h3>几何方案库</h3><button id="geometry-library-refresh" class="button secondary" type="button">刷新方案库</button></div><p class="hint">保存的是当前几何坐标、模型来源及调整记录；不包含 CFD 结果，重启平台后仍可载入。</p><div class="geometry-save-controls"><label for="geometry-save-name">当前方案名称<input id="geometry-save-name" maxlength="60" placeholder="例如 B0 扇形20喷嘴"></label><button id="geometry-library-save" class="button dark" type="button" disabled>保存当前几何方案</button></div><p id="geometry-library-note" role="status"></p><div id="geometry-library-rows" class="geometry-library-rows"></div></section>
       <section class="pipeline-panel" id="pipeline-panel" aria-label="一键运行与方案结果">
         <div class="pipeline-heading"><div><span class="eyebrow">AUTOMATED WORKFLOW</span><h3>配置一次，程序依次完成</h3><p id="pipeline-ready">载入模型并确认供气模板后可运行。</p></div><button id="run-pipeline" class="button primary" type="button" disabled>一键运行 ↗</button></div>
         <p class="pipeline-scope">当前几何模板下每方案最多 25 个喷嘴。首版提供定温空气冷流，氢气／空气保留为实验模板；实际采用的模型、物性及收敛状态随结果导出。未验证的参数范围不用于正式性能排名。</p>

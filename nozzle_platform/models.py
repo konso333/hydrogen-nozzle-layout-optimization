@@ -76,6 +76,14 @@ class ModelStore:
         with self.lock:
             return list(self.sources.values())
 
+    def load_starter(self):
+        source = next((item for item in self.catalog()
+                       if item["archive_sha256"] and item["name"] == "B0_baseline_merged_solid.step"), None)
+        if source is None:
+            path = Path(__file__).with_name("starter_nozzle.step")
+            source = self.add_source(path.name, path.read_bytes(), label="通用示例喷嘴", origin=[0, 0, 0])
+        return self.load(source["source_id"], axis=source["default_axis"], origin=source["default_origin_mm"])
+
     def cad(self, job, *, cancel=None):
         directory = self.root / ("job_" + uuid.uuid4().hex)
         directory.mkdir()

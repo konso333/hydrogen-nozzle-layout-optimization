@@ -1,6 +1,8 @@
 "use strict";
 const $=id=>document.getElementById(id);
-const state={sources:[],model:null,scheme:null,domain:null,mesh:null,flow:null,study:null,job:null,busy:false,view:"3d",viewer:null};
+const workspaceMode=new URLSearchParams(location.search).get("mode");
+const beginnerMode=workspaceMode==="quick"||(!workspaceMode&&!location.hash);
+const state={sources:[],model:null,scheme:null,domain:null,mesh:null,flow:null,study:null,job:null,busy:false,view:"3d",viewer:null,beginner:beginnerMode,geometryOnly:beginnerMode||workspaceMode==="geometry"};
 const familyNames={rectangular:"方阵",honeycomb:"蜂巢",sunflower:"向日葵",ring:"环形"};
 const fmt=(v,d=3)=>v===null||v===undefined?"—":Number(v).toLocaleString("zh-CN",{maximumFractionDigits:d});
 function notice(message,type=""){ $("notice").textContent=message;$("notice").className="notice "+type; }
@@ -16,6 +18,8 @@ function availability(){
   for(const id of ["start-angle","sweep-angle"])$(id).disabled=state.busy||$("region").value!=="sector";
   $("rotation").disabled=state.busy||$("spacing-mode").value!=="manual";
   $("spacing").disabled=state.busy||$("spacing-mode").value!=="manual"||!["rectangular","honeycomb"].includes($("family").value);
+  geometryAvailability();
+  beginnerAvailability();
 }
 function busy(on,text="处理中…"){state.busy=on;$("busy-overlay").hidden=!on;$("busy-text").textContent=text;availability();}
 async function api(path,body,headers={}){
@@ -34,6 +38,7 @@ function setSourceReference(){
 }
 function invalidate(message=false){
   clearDesignAdvice();
+  clearGeometryComparison();
   invalidateDomain();
   state.scheme=null;$("coordinate-rows").innerHTML='<tr><td colspan="5" class="empty-table">参数已更新，生成后显示坐标</td></tr>';
   for(const id of ["metric-count","metric-spacing","metric-gap","metric-wall"])$(id).textContent="—";
@@ -71,6 +76,7 @@ async function loadModel(){
     const model=await api("/api/load-model",{source_id:$("model-select").value,axis:$("axis").value,origin});
     installModel(model);
     notice(origin?"模型已载入。核对参数后可点击「一键运行」，也可先生成阵列预览。":"模型已载入。安装原点按包围盒估计，请先在「轴线与安装参考点」中核对。",origin?"":"neutral");
+    return model;
   }catch(error){notice(error.message,"error");}finally{busy(false);}
 }
 function parameters(){
@@ -119,6 +125,10 @@ function switchView(view){
     $("view-subtitle").textContent="真实 CAD 曲面 · mm";
   }
   $("view-guide").textContent=view==="plan"?"完整模型包络 · 编号与坐标表对应":"拖动旋转 · 滚轮缩放";
+  if(state.beginner&&view==="plan"){
+    $("view-subtitle").textContent="每个圆圈代表一个喷嘴的位置";
+    $("view-guide").textContent="编号与下载的坐标对应";
+  }
   state.viewer?.draw();
 }
 async function exportScheme(cad){
@@ -130,10 +140,13 @@ $("load-model").addEventListener("click",loadModel);
 $("model-select").addEventListener("change",()=>{setSourceReference();invalidateModel();});
 for(const id of ["axis","origin-x","origin-y","origin-z"])$(id).addEventListener("change",invalidateModel);
 $("import-button").addEventListener("click",()=>$("model-file").click());
-$("model-file").addEventListener("change",async event=>{
-  const file=event.target.files[0];if(!file)return;
+async function importModel(file){
   if(file.size>20*1024*1024){notice("请选择不超过 20 MB 的 STEP 模型。","error");return;}
-  busy(true,"正在导入模型…");try{const source=await api("/api/import",await file.arrayBuffer(),{"Content-Type":"application/octet-stream","X-Filename":encodeURIComponent(file.name)});state.sources=state.sources.filter(s=>s.source_id!==source.source_id);state.sources.push(source);sourceOptions(source.source_id);setSourceReference();invalidateModel();notice("文件已导入。核对轴线与参考点后，点击「载入模型」。","neutral");}catch(error){notice(error.message,"error");}finally{busy(false);event.target.value="";}
+  busy(true,"正在导入模型…");try{const source=await api("/api/import",await file.arrayBuffer(),{"Content-Type":"application/octet-stream","X-Filename":encodeURIComponent(file.name)});state.sources=state.sources.filter(s=>s.source_id!==source.source_id);state.sources.push(source);sourceOptions(source.source_id);setSourceReference();invalidateModel();notice("文件已导入。核对轴线与参考点后，点击「载入模型」。","neutral");return source;}catch(error){notice(error.message,"error");}finally{busy(false);}
+}
+$("model-file").addEventListener("change",async event=>{
+  const file=event.target.files[0];event.target.value="";if(!file)return;
+  if(state.beginner)await beginnerImport(file);else await importModel(file);
 });
 for(const id of ["count","region","radius","start-angle","sweep-angle","family","diameter","gap","wall","spacing-mode","spacing","rotation"]){$(id).addEventListener("input",()=>{
   $("sector-fields").hidden=$("region").value!=="sector";$("manual-fields").hidden=$("spacing-mode").value!=="manual";
@@ -155,11 +168,13 @@ $("save-image").addEventListener("click",()=>{
   else{state.viewer?.draw();download($("viewer").toDataURL("image/png"),state.view==="domain"?"fluid_domain.png":state.view==="mesh"?"volume_mesh.png":"nozzle_assembly.png");}
 });
 async function init(){
-  try{state.viewer=new NozzleViewer($("viewer"));}catch(error){notice(error.message,"error");return;}
+  initializeBeginner();
+  try{state.viewer=new NozzleViewer($("viewer"));}catch(error){notice(error.message,"error");if(!state.beginner)return;$("view-3d").hidden=true;$("reset-view").hidden=true;}
   initializeDomains();
   initializeSimulation();
   initializePipeline();
   initializePresets();
-  try{const response=await fetch("/api/bootstrap"),data=await response.json();state.sources=data.models;$("solver-capability").textContent=data.workflow.note;state.fluentAvailable=data.workflow.fluent_available;if(data.workflow.preferred_compute_device==="gpu")selectGpuValidation();sourceOptions();setSourceReference();if(state.sources.length)await loadModel();else notice("导入单喷嘴 STEP，即可开始设计。","neutral");await refreshPresets();await refreshPipelineHistory();}catch(error){notice(error.message,"error");}
+  initializeGeometryWorkspace();
+  try{const response=await fetch("/api/bootstrap"),data=await response.json();state.sources=data.models;$("solver-capability").textContent=data.workflow.note;state.fluentAvailable=data.workflow.fluent_available;if(data.workflow.preferred_compute_device==="gpu")selectGpuValidation();sourceOptions();setSourceReference();if(state.beginner){await startBeginner(data.geometry_limits);return;}if(state.sources.length)await loadModel();else notice("导入单喷嘴 STEP，即可开始设计。","neutral");await refreshPresets();await refreshGeometryLibrary();if(!state.geometryOnly)await refreshPipelineHistory();}catch(error){notice(error.message,"error");if(state.beginner)beginnerStatus("无法连接本机平台。请刷新网页重试。","error");}
 }
 init();
