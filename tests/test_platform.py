@@ -184,6 +184,20 @@ def test_foreign_origin_and_host_cannot_operate_local_cad(server):
     assert call(server,"POST","/api/load-model",b"{}",{"Origin":"https://elsewhere.example"})[0]==403
     assert call(server,"GET","/api/bootstrap",headers={"Host":"elsewhere.example"})[0]==403
 
+def test_interrupted_model_upload_is_retryable_without_partial_source(tmp_path,monkeypatch):
+    from tests.test_presets import RAW
+    store=ModelStore(tmp_path/'models')
+    write_bytes=Path.write_bytes
+    def interrupted(path,raw):
+        if path.name=='source.step':raise OSError('synthetic upload interruption')
+        return write_bytes(path,raw)
+    with monkeypatch.context() as patch:
+        patch.setattr(Path,'write_bytes',interrupted)
+        with pytest.raises(OSError,match='interruption'):store.add_source('fixture.step',RAW)
+    assert not store.catalog() and not list(store.root.glob('*.step')) and not list(store.root.glob('.source_*'))
+    source=store.add_source('fixture.step',RAW)
+    assert (store.root/(source['source_id']+'.step')).read_bytes()==RAW
+
 
 def test_second_server_cannot_bind_the_same_port(server, tmp_path):
     with pytest.raises(OSError):

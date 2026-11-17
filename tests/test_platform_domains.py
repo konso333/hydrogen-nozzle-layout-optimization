@@ -10,7 +10,7 @@ import zipfile
 import pytest
 
 from nozzle_platform.design import DesignStore
-from nozzle_platform.domains import DomainStore, normalize
+from nozzle_platform.domains import DomainStore, DomainValidationError, normalize
 from tests.test_platform import model as base_model, request as design_request
 
 
@@ -24,6 +24,49 @@ def config(scheme,**changes):
         "chamber_start_z_mm":-1.5,"passage_radius_mm":7,"upstream_z_mm":-28,
         "fuel_z_mm":-4,"fuel_half_band_mm":.5,"oxidizer_ports_per_nozzle":10,"fuel_ports_per_nozzle":16,
         "boundary_template":"axial_air_side_hydrogen","template_confirmed":True,**changes}
+
+
+def test_multiple_domain_constraints_report_fields_and_preserve_first_error():
+    from nozzle_platform.design import generate
+    single_model=model()
+    scheme=generate(design_request(),single_model)
+    request=config(scheme,chamber_radius_mm=10,chamber_length_mm=1,upstream_z_mm=-100,
+                   fuel_z_mm=1,passage_radius_mm=11)
+    original=copy.deepcopy(request)
+    with pytest.raises(DomainValidationError) as captured:
+        normalize(request,scheme,single_model)
+    issues=captured.value.issues
+    assert str(captured.value)==issues[0]['message']
+    assert issues[0]['code']=='upstream_position'
+    assert {row['code'] for row in issues}=={'upstream_position','inlet_order','outlet_position',
+                                           'passage_radius','chamber_envelope','passage_overlap'}
+    assert all(row['fields'] and set(row['fields'])<=set(request) for row in issues)
+    assert request==original
+
+@pytest.mark.parametrize('radius',[5001,1e308])
+def test_oversized_domain_radius_is_rejected_without_constructing_boundary(radius):
+    from nozzle_platform.design import generate
+    single_model=model()
+    scheme=generate(design_request(),single_model)
+    with pytest.raises(DomainValidationError) as captured:
+        normalize(config(scheme,chamber_radius_mm=radius),scheme,single_model)
+    assert str(captured.value)=='燃烧室尺寸超过首版预算。'
+    assert captured.value.issues[0]['code']=='chamber_size_limit'
+
+def test_invalid_numeric_domain_inputs_are_grouped_before_geometric_checks():
+    from nozzle_platform.design import generate
+    single_model=model()
+    scheme=generate(design_request(),single_model)
+    invalid=config(scheme,chamber_radius_mm=0,chamber_length_mm=-1,passage_radius_mm=None,
+                   upstream_z_mm='invalid',fuel_ports_per_nozzle=129)
+    with pytest.raises(DomainValidationError) as captured:
+        normalize(invalid,scheme,single_model)
+    issues=captured.value.issues
+    assert len(issues)==5
+    assert str(captured.value)=='燃烧室、内部包络半径及供氢带半宽必须为正数。'
+    assert {row['fields'][0] for row in issues}=={'chamber_radius_mm','chamber_length_mm','passage_radius_mm',
+                                                'upstream_z_mm','fuel_ports_per_nozzle'}
+    assert {row['code'] for row in issues}=={'positive_size','invalid_number','port_count_limit'}
 
 
 class FakeModels:

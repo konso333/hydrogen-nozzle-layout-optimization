@@ -5,9 +5,11 @@ const beginner = {limits: null, example: false};
 function beginnerAvailability(){
   if(!state.beginner)return;
   $("beginner-import").disabled=state.busy||!beginner.limits;
+  $("beginner-open-record").disabled=state.busy||!beginner.limits;
   $("beginner-example").disabled=state.busy||!beginner.limits;
   $("beginner-generate").disabled=state.busy||!state.model;
   $("beginner-download").disabled=state.busy||!state.scheme;
+  $("beginner-continue").disabled=state.busy||!state.scheme;
   for(const button of $("beginner-suggestions").querySelectorAll("button"))button.disabled=state.busy;
 }
 
@@ -87,7 +89,7 @@ async function beginnerImport(file){
 }
 
 function showBeginnerResult(scheme,automaticRadius){
-  $("family").value=scheme.request.family;
+  applyDesignFields(scheme.request);
   display(scheme);
   const request=scheme.request;
   $("beginner-result-title").textContent=`已排好 ${request.N} 个喷嘴`;
@@ -199,6 +201,20 @@ async function generateBeginner(event){
   }catch(error){beginnerStatus(error.message,"error");}finally{busy(false);}
 }
 
+async function continueBeginnerDesign(){
+  if(state.busy||!state.scheme)return;
+  busy(true,"正在保存当前排布…");
+  beginnerStatus("正在保存当前排布…");
+  try{
+    const scheme=state.scheme;
+    const name=`快速排布 · ${scheme.request.N} 个 · ${familyNames[scheme.request.family]}`;
+    const saved=await api("/api/geometry-library-save",{scheme_id:scheme.scheme_id,name});
+    location.assign("/?mode=geometry&entry="+encodeURIComponent(saved.entry.entry_id));
+  }catch(error){
+    beginnerStatus("当前排布未能保存，请重试。"+error.message,"error");
+  }finally{busy(false);}
+}
+
 function initializeBeginner(){
   if(!state.beginner)return;
   document.body.classList.add("beginner-mode");
@@ -212,6 +228,7 @@ function initializeBeginner(){
   $("beginner-form").addEventListener("submit",generateBeginner);
   $("beginner-import").addEventListener("click",()=>$("model-file").click());
   $("beginner-example").addEventListener("click",loadBeginnerExample);
+  $("beginner-continue").addEventListener("click",continueBeginnerDesign);
   $("beginner-form").addEventListener("input",()=>{setBeginnerFields();resetBeginnerResult();});
   $("beginner-download").addEventListener("click",async()=>{
     if(state.busy||!state.scheme)return;

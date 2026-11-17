@@ -160,7 +160,7 @@
           <p>输入数量，网站自动排好位置，给你看俯视图和三维装配。</p>
         </div>
         <form id="beginner-form" novalidate>
-          <div class="beginner-model"><p id="beginner-model" aria-live="polite">正在准备示例喷嘴…</p><div class="beginner-actions"><button id="beginner-import" type="button" class="button secondary" title="选择单喷嘴的 STEP 或 STP 文件" disabled>导入我的模型</button><button id="beginner-example" type="button" class="button secondary" hidden>使用示例</button></div></div>
+          <div class="beginner-model"><p id="beginner-model" aria-live="polite">正在准备示例喷嘴…</p><div class="beginner-actions"><button id="beginner-import" type="button" class="button secondary" title="选择单喷嘴的 STEP 或 STP 文件" disabled>导入我的模型</button><button id="beginner-open-record" type="button" class="button secondary" disabled>导入已有方案</button><button id="beginner-example" type="button" class="button secondary" hidden>使用示例</button></div></div>
           <div class="beginner-count"><label for="beginner-count">喷嘴数量（个）</label><input id="beginner-count" type="number" min="1" max="128" step="1" value="11" required aria-describedby="beginner-range"><p id="beginner-range">可先用 11 个试一遍。</p></div>
           <details id="beginner-options">
             <summary>我有安装尺寸，或想指定排列</summary>
@@ -179,18 +179,20 @@
       </section>
       <section id="beginner-result" hidden aria-label="你的排布结果">
         <div><h2 id="beginner-result-title" tabindex="-1"></h2><p id="beginner-result-details"></p></div>
-        <button id="beginner-download" type="button" class="button secondary">下载排布和坐标</button>
+        <div class="beginner-actions"><button id="beginner-download" type="button" class="button secondary">下载排布和坐标</button><button id="beginner-continue" type="button" class="button dark">保存并继续设计</button></div>
+        <p class="beginner-next">继续设计可比较排列、调整间隙和导出三维 STEP；本次排布会保存到方案库。</p>
       </section>
       <div class="workspace-heading"><div><span class="eyebrow">ARRAY DESIGN STUDIO</span><h2>从一个喷嘴，到自动仿真<span>。</span></h2><p id="workspace-caption">配置完成后，一键生成阵列、构建流体域、划分网格并运行 Fluent 冷流。</p></div><span class="version">一键冷流工作流</span></div>
       <div id="notice" class="notice" role="status" aria-live="polite">正在读取本地模型目录…</div>
-      <section id="geometry-intro" class="geometry-panel" hidden><h3>仅几何设计工作台</h3><p>载入模型 → 设置数量与区域 → 智能生成或比较四种排列 → 选择并检查装配 → 保存到方案库或导出。</p><p class="hint">此入口不提交流体域、网格或 Fluent 任务。大阵列几何成功不代表 CFD 已验证，几何指标不作燃烧性能排名。</p></section>
+      <section id="geometry-intro" class="geometry-panel" hidden><h3>仅几何设计工作台</h3><p>载入模型 → 设置数量与区域 → 智能生成或比较四种排列 → 选择并检查装配 → 保存到方案库或导出。</p><button id="geometry-to-simulation" type="button" class="button dark" disabled>带此排布配置仿真</button><p class="hint">此入口不提交流体域、网格或 Fluent 任务。大阵列几何成功不代表 CFD 已验证，几何指标不作燃烧性能排名。</p></section>
       <section id="design-assistance" class="design-assistance" aria-label="几何设计助手" hidden>
         <h3>几何设计助手</h3><p id="design-assist-message" role="status" aria-live="polite"></p>
         <ul id="design-assist-reasons"></ul><div id="design-assist-options"></div>
         <p class="hint" id="design-assist-scope"></p>
       </section>
       <section id="geometry-comparison" class="geometry-panel" hidden aria-label="四种排列几何比较"><div class="geometry-panel-heading"><h3>同条件排列比较</h3><button id="geometry-compare-export" class="button secondary" type="button" disabled>导出几何比较包</button></div><p id="geometry-compare-summary"></p><div id="geometry-candidates" class="geometry-candidates"></div><p class="hint">只标记同模型、同区域和约束下完全相同的坐标集合，忽略编号顺序；不进行平移、旋转对齐，也不合并近似坐标，不自动跳过 CFD。</p></section>
-      <section id="geometry-library" class="geometry-panel" aria-label="几何方案库"><div class="geometry-panel-heading"><h3>几何方案库</h3><button id="geometry-library-refresh" class="button secondary" type="button">刷新方案库</button></div><p class="hint">保存的是当前几何坐标、模型来源及调整记录；不包含 CFD 结果，重启平台后仍可载入。</p><div class="geometry-save-controls"><label for="geometry-save-name">当前方案名称<input id="geometry-save-name" maxlength="60" placeholder="例如 B0 扇形20喷嘴"></label><button id="geometry-library-save" class="button dark" type="button" disabled>保存当前几何方案</button></div><p id="geometry-library-note" role="status"></p><div id="geometry-library-rows" class="geometry-library-rows"></div></section>
+      <section id="geometry-library" class="geometry-panel" aria-label="几何方案库"><div class="geometry-panel-heading"><h3>几何方案库</h3><div class="geometry-library-tools"><button id="geometry-library-import" class="button secondary" type="button">导入记录包</button><button id="geometry-library-refresh" class="button secondary" type="button">刷新方案库</button></div></div><input id="geometry-library-file" type="file" accept=".zip,application/zip" hidden><p class="hint">保存的是当前几何坐标、模型来源及调整记录。导出的记录包可在另一台已安装平台的电脑导入，重启后仍可载入。</p><div class="geometry-save-controls"><label for="geometry-save-name">当前方案名称<input id="geometry-save-name" maxlength="60" placeholder="例如 B0 扇形20喷嘴"></label><button id="geometry-library-save" class="button dark" type="button" disabled>保存当前几何方案</button></div><p id="geometry-library-note" role="status"></p><p class="hint">勾选 2～4 条记录，可比较不同数量或排列；条件差异会单独提示。</p><button id="geometry-library-compare" class="button secondary" type="button" disabled>比较所选方案</button><div id="geometry-library-rows" class="geometry-library-rows"></div></section>
+      <section id="geometry-saved-comparison" class="geometry-panel" hidden aria-label="已保存方案比较"><div class="geometry-panel-heading"><h3>已保存方案比较</h3><button id="geometry-saved-export" class="button secondary" type="button" disabled>导出所选比较包</button></div><p id="geometry-saved-note" role="status"></p><p class="hint">各图按各自安装区域缩放，尺寸请以表中数值为准。表格可上下或左右滚动。单喷嘴的中心距和净间隙显示为“—”。</p><div id="geometry-saved-cards" class="geometry-candidates"></div><div class="table-wrap"><table id="geometry-saved-table"></table></div></section>
       <section class="pipeline-panel" id="pipeline-panel" aria-label="一键运行与方案结果">
         <div class="pipeline-heading"><div><span class="eyebrow">AUTOMATED WORKFLOW</span><h3>配置一次，程序依次完成</h3><p id="pipeline-ready">载入模型并确认供气模板后可运行。</p></div><button id="run-pipeline" class="button primary" type="button" disabled>一键运行 ↗</button></div>
         <p class="pipeline-scope">当前几何模板下每方案最多 25 个喷嘴。首版提供定温空气冷流，氢气／空气保留为实验模板；实际采用的模型、物性及收敛状态随结果导出。未验证的参数范围不用于正式性能排名。</p>

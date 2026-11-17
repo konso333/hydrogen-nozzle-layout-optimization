@@ -13,6 +13,7 @@ from nozzle_platform.design import DesignStore
 from nozzle_platform.domains import DomainStore
 from nozzle_platform.workflows import WorkflowStore,sha256,save
 from nozzle_platform.pipelines import PipelineStore,normalize,heat_velocity
+from nozzle_platform.layout_advisor import annotate
 from tests.test_platform import request as design_request
 from tests.test_platform_domains import model as model_fixture,config as domain_config
 
@@ -86,6 +87,95 @@ def finished(store,request):
     while store.workflows.reservation is not None and time.monotonic()<end:time.sleep(.01)
     assert store.workflows.reservation is None,'Synthetic controller did not finish'
     return store.status(start['job_id'])
+
+def selected_request(store):
+    config=request()
+    scheme=store.designs.create(copy.deepcopy(config['design']))
+    scheme['coordinates_mm'].reverse()
+    annotate(scheme,dict(config['design'],N=50),'explicit_suggestion_click')
+    with store.designs.lock:store.designs.schemes[scheme['scheme_id']]=scheme
+    config['selected_scheme_id']=scheme['scheme_id']
+    return config,scheme
+
+def test_selected_geometry_uses_exact_saved_coordinates_and_exports_original_goal(store,monkeypatch):
+    config,scheme=selected_request(store)
+    def no_regeneration(*args):raise AssertionError('Selected geometry must not be regenerated')
+    monkeypatch.setattr(store.designs,'create',no_regeneration)
+    check=store.preflight(config)
+    assert check['parameters_valid'] and check['cases'][0]['coordinates_preserved']
+    assert not store.workflows.calls
+    task=finished(store,config)
+    assert task['status']=='completed'
+    assert task['cases'][0]['coordinates_mm']==scheme['coordinates_mm']
+    assert task['cases'][0]['coordinates_preserved']
+    assert task['selected_geometry']==scheme
+    assert json.loads(store.file(task['job_id'],'summary.json').read_text(encoding='utf-8'))['selected_geometry']==scheme
+    exported=json.loads(store.file(task['job_id'],'case1_scheme.json').read_text(encoding='utf-8'))
+    assert exported['design_assistance']['requested_design']['N']==50
+    assert exported['scheme_id']==scheme['scheme_id']
+
+def test_preflight_collects_domain_issues_without_running_or_changing_selected_geometry(store):
+    config,scheme=selected_request(store)
+    original=copy.deepcopy(scheme)
+    config['domain'].update(chamber_radius_mm=10,chamber_length_mm=1,upstream_z_mm=-100,
+                            fuel_z_mm=1,passage_radius_mm=11,template_confirmed=False)
+    checked=store.preflight(config)
+    assert not checked['parameters_valid'] and not checked['template_confirmed']
+    issues=checked['cases'][0]['issues']
+    assert {row['code'] for row in issues}=={'upstream_position','inlet_order','outlet_position',
+                                           'passage_radius','chamber_envelope','passage_overlap'}
+    assert all(row['fields'] for row in issues)
+    assert store.designs.get(scheme['scheme_id'])==original
+    assert not store.workflows.calls and not store.folders
+
+@pytest.mark.parametrize('fault',['quantity','radius','family','coordinates','model','missing'])
+def test_stale_or_invalid_selected_geometry_is_rejected_before_work(store,fault):
+    config,scheme=selected_request(store)
+    if fault=='quantity':config['design']['N']=8
+    elif fault=='radius':config['design']['radius_mm']=41
+    elif fault=='family':config['design']['family']='honeycomb'
+    elif fault=='coordinates':scheme['coordinates_mm'][0][0]=10000
+    elif fault=='model':scheme['model']['source_id']='0'*64
+    else:config['selected_scheme_id']='0'*64
+    for operation in (store.preflight,store.start):
+        with pytest.raises(ValueError):operation(config)
+    assert not store.folders and not store.workflows.calls and store.workflows.reservation is None
+
+def test_selected_first_case_does_not_replace_other_comparison_designs(store,monkeypatch):
+    config,scheme=selected_request(store)
+    config['comparison'].update(basis='same-area',cases=[dict(N=7,family='honeycomb')])
+    original=store.designs.create
+    generated=[]
+    def create(parameters):
+        generated.append(copy.deepcopy(parameters))
+        return original(parameters)
+    monkeypatch.setattr(store.designs,'create',create)
+    task=finished(store,config)
+    assert task['status']=='completed' and len(generated)==1 and generated[0]['N']==7
+    assert task['cases'][0]['coordinates_mm']==scheme['coordinates_mm']
+    assert task['cases'][1]['N']==7 and task['cases'][1]['scheme_id']!=scheme['scheme_id']
+
+def test_selected_geometry_is_snapshotted_before_background_execution(store,monkeypatch):
+    import nozzle_platform.pipelines as module
+    config,scheme=selected_request(store)
+    expected=copy.deepcopy(scheme)
+    class HeldThread:
+        def __init__(self,*args,**kwargs):pass
+        def start(self):pass
+    with monkeypatch.context() as patch:
+        patch.setattr(module.threading,'Thread',HeldThread)
+        task=store.start(config)
+    scheme['coordinates_mm'][0][0]=10000
+    config['design']['N']=1
+    state=store.workflows.jobs[task['job_id']]
+    store.run(state,store.workflows.cancel_events[task['job_id']])
+    result=store.status(task['job_id'])
+    assert result['status']=='completed'
+    assert result['cases'][0]['coordinates_mm']==expected['coordinates_mm']
+
+@pytest.mark.parametrize('key',[None,1,'../record','g'*64])
+def test_invalid_selected_scheme_identifiers_are_not_normalized(key):
+    with pytest.raises(ValueError,match='排布编号'):normalize(dict(request(),selected_scheme_id=key))
 
 
 def test_serial_one_click_comparison_keeps_unconverged_results_and_verifies_heat(store):

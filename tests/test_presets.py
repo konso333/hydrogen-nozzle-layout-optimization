@@ -39,6 +39,17 @@ def test_preset_survives_restart_and_preserves_original_reference_types(tmp_path
     assert restored['preset']['scientific_eligible'] is False
 
 
+def test_parameter_preset_rejects_transient_selected_geometry_identifier(tmp_path):
+    m=models(tmp_path/'models')
+    source=m.add_source('fixture.step',RAW)
+    model=m.load(source['source_id'],axis='z',origin=None)
+    config=request();config['design']['model_id']=model['model_id']
+    config['selected_scheme_id']='a'*64
+    presets=PresetStore(tmp_path/'presets',m)
+    with pytest.raises(ValueError,match='几何方案库'):presets.store('含临时排布编号',config)
+    assert not presets.catalog()
+
+
 def saved_preset(tmp_path):
     m=models(tmp_path/'models');source=m.add_source('fixture.step',RAW);model=m.load(source['source_id'],axis='y',origin=[1,2,3])
     config=request();config['design']['model_id']=model['model_id'];store=PresetStore(tmp_path/'presets',m)

@@ -1,5 +1,5 @@
 """Immutable, content-checked local geometry records, independent of Fluent history."""
-import copy,csv,hashlib,io,json,math,re,threading,time,uuid,zipfile
+import copy,csv,hashlib,io,json,math,os,re,tempfile,threading,time,uuid,zipfile
 from pathlib import Path
 from nozzle_platform.geometry_records import digest,canonical,verify_scheme,geometry_key
 from nozzle_platform.design import MAX_ARRAY_PREVIEW_TRIANGLES, layout_svg
@@ -36,7 +36,9 @@ class GeometryLibrary:
         return ref,path
 
     def read(self,key):
-        folder=self.folder(key);entry=read_json(folder/'entry.json')
+        folder=self.folder(key)
+        if not (folder/'entry.json').is_file():raise ValueError('找不到完整的几何方案记录，请从方案库选择可用记录。')
+        entry=read_json(folder/'entry.json')
         if entry.get('schema_version')!=1 or entry.get('entry_id')!=key or set(entry.get('files_sha256',{}))!=FILES:raise ValueError('几何记录清单不完整。')
         for name,h in entry['files_sha256'].items():
             path=folder/name
@@ -64,14 +66,65 @@ class GeometryLibrary:
     def save(self,payload):
         if set(payload)!={'scheme_id','name'} or not isinstance(payload['name'],str) or not 1<=len(payload['name'].strip())<=60 or any(ord(c)<32 for c in payload['name']):raise ValueError('请填写 1～60 字的方案名称。')
         name=payload['name'].strip();scheme=copy.deepcopy(self.designs.get(payload['scheme_id']));verify_scheme(scheme);self.reference(scheme)
-        key=digest(dict(name=name,scheme=scheme));folder=self.folder(key)
+        key=digest(dict(name=name,scheme=scheme))
+        files=geometry_files(scheme)
+        entry=dict(schema_version=1,entry_id=key,name=name,created_epoch=time.time(),geometry_key=geometry_key(scheme),
+                   files_sha256={n:hashlib.sha256(files[n]).hexdigest() for n in sorted(FILES)},solver_started=False)
+        return self.publish(entry,scheme)
+
+    def publish(self,entry,scheme):
+        key=entry['entry_id'];folder=self.folder(key)
         with self.lock:
             if folder.exists():entry,stored=self.read(key);return dict(entry=self.summary(entry,stored),already_saved=True)
-            folder.mkdir()
-            for filename,raw in geometry_files(scheme).items():(folder/filename).write_bytes(raw)
-            entry=dict(schema_version=1,entry_id=key,name=name,created_epoch=time.time(),geometry_key=geometry_key(scheme),files_sha256={n:sha(folder/n) for n in sorted(FILES)},solver_started=False)
-            (folder/'entry.json').write_text(canonical(entry),encoding='utf-8')
+            with tempfile.TemporaryDirectory(prefix='.saving_',dir=self.root) as temporary:
+                staged=Path(temporary)/'record'
+                staged.mkdir()
+                for filename,raw in geometry_files(scheme).items():(staged/filename).write_bytes(raw)
+                (staged/'entry.json').write_text(canonical(entry),encoding='utf-8')
+                try:os.rename(staged,folder)
+                except OSError:
+                    if not folder.is_dir():raise
+                    existing,stored=self.read(key)
+                    return dict(entry=self.summary(existing,stored),already_saved=True)
         return dict(entry=self.summary(entry,scheme),already_saved=False)
+
+    def import_package(self,raw):
+        from nozzle_platform.geometry_import import read_package
+        from nozzle_platform.models import ModelStore
+        from nozzle_platform.design import DesignStore
+        files,entry,scheme=read_package(raw)
+        try:
+            verify_scheme(scheme)
+            ref=scheme['model'];key=entry['entry_id']
+            self.folder(key)
+            if not isinstance(entry.get('name'),str) or not 1<=len(entry['name'].strip())<=60 or any(ord(c)<32 for c in entry['name']):
+                raise ValueError('导入方案名称无效。')
+            if type(entry.get('created_epoch')) not in (int,float) or not math.isfinite(entry['created_epoch']):
+                raise ValueError('导入方案保存时间无效。')
+            if entry.get('solver_started') is not False:
+                raise ValueError('请选择仅包含几何方案的记录包。')
+            if model_digest(files['single_nozzle.step'])!=ref.get('source_id'):
+                raise ValueError('记录包的单喷嘴 STEP 与保存来源不一致。')
+            with tempfile.TemporaryDirectory(prefix='.import_',dir=self.root) as temporary:
+                temporary=Path(temporary)
+                models=ModelStore(temporary/'models',gmsh_path=self.designs.models.gmsh_path)
+                source=models.add_source('single_nozzle.step',files['single_nozzle.step'])
+                if source['source_unit']!=ref.get('source_unit'):
+                    raise ValueError('记录包的 STEP 单位与模型参考信息不同。')
+                staged=GeometryLibrary(temporary/'library',DesignStore(temporary/'designs',models))
+                folder=staged.folder(key);folder.mkdir()
+                for name in FILES|{'entry.json'}:(folder/name).write_bytes(files[name])
+                restored=staged.load(key)
+                live=self.designs.models
+                live.add_source(ref.get('name','single_nozzle.step'),files['single_nozzle.step'],label=ref.get('label'),
+                                origin=ref['origin_input_mm'],archive_hash=ref.get('archive_sha256'))
+                with live.lock:
+                    live.sources[ref['source_id']]['default_axis']=ref['axis']
+                    live.models[restored['model']['model_id']]=copy.deepcopy(restored['model'])
+                self.reference(scheme)
+                return dict(self.publish(entry,scheme),coordinates_preserved=True,solver_started=False)
+        except (KeyError,TypeError,AttributeError,IndexError) as error:
+            raise ValueError('记录包的方案或模型参考信息不完整，请重新导出。') from error
 
     def load(self,key):
         entry,scheme=self.read(key);ref,path=self.reference(scheme);models=self.designs.models

@@ -28,6 +28,8 @@ def settings(document):
     if not isinstance(document,dict) or set(document)!={'schema_version','name','model_reference','request'} or type(document['schema_version']) is not int or document['schema_version']!=1:
         raise ValueError('预设格式不支持；请使用平台导出的参数 JSON。')
     result=copy.deepcopy(document);name=result['name'];ref=result['model_reference'];request=result['request']
+    if isinstance(request,dict) and 'selected_scheme_id' in request:
+        raise ValueError('参数预设只保存生成参数；保存原坐标请使用几何方案库。')
     if not isinstance(name,str) or not 1<=len(name.strip())<=60 or any(ord(c)<32 for c in name):raise ValueError('预设名称需为 1～60 个可显示字符。')
     result['name']=name.strip()
     if not isinstance(ref,dict) or set(ref)!=REFERENCE_FIELDS or ref['model_engine']!=MODEL_ENGINE:raise ValueError('模型参考信息不完整或版本不同，请重新载入模型。')

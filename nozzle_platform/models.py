@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
+import tempfile
 import uuid
 import zipfile
 
@@ -62,8 +63,11 @@ class ModelStore:
         unit = _step_unit(raw)
         source_id = digest(raw)
         path = self.root / (source_id + ".step")
-        if not path.exists():
-            path.write_bytes(raw)
+        if not path.is_file() or digest(path.read_bytes())!=source_id:
+            with tempfile.TemporaryDirectory(prefix='.source_',dir=self.root) as temporary:
+                staged=Path(temporary)/'source.step'
+                staged.write_bytes(raw)
+                os.replace(staged,path)
         with self.lock:
             source = {"source_id": source_id, "name": Path(name).name,
                       "label": label or Path(name).name, "source_unit": unit,

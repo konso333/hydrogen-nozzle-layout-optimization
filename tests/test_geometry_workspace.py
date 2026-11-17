@@ -1,11 +1,13 @@
 """Geometry comparison, strict deduplication and immutable library contracts."""
 import copy,csv,hashlib,io,json,math,threading,zipfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import pytest
 from nozzle_platform.design import DesignStore,generate
 from nozzle_platform.geometry_compare import compare
 from nozzle_platform.geometry_records import geometry_key,verify_scheme
 from nozzle_platform.geometry_library import GeometryLibrary
+import nozzle_platform.geometry_library as library_module
 from nozzle_platform.models import MODEL_ENGINE,digest
 from tests.test_platform import request,model,server,call
 
@@ -68,6 +70,57 @@ def test_save_is_idempotent_and_survives_store_restart(library):
     loaded=restarted.load(first['entry']['entry_id']);assert loaded['coordinates_preserved'] and loaded['scheme']==original and models.loads==1
     assert restarted.designs.get(original['scheme_id'])==original and loaded['solver_started'] is False
 
+@pytest.mark.parametrize('failure_at',['scheme.json','coordinates.csv','layout.svg','entry.json','publish'])
+def test_interrupted_save_leaves_no_visible_partial_record_and_can_retry(library,monkeypatch,failure_at):
+    lib,designs,models=library
+    original=scheme(designs,models,N=11,radius_mm=60)
+    payload=dict(scheme_id=original['scheme_id'],name='可重试方案')
+    write_bytes=Path.write_bytes
+    write_text=Path.write_text
+
+    def interrupted_bytes(path,raw):
+        if path.name==failure_at:raise OSError('simulated disk write failure')
+        return write_bytes(path,raw)
+
+    def interrupted_text(path,content,**kwargs):
+        if path.name==failure_at:raise OSError('simulated metadata write failure')
+        return write_text(path,content,**kwargs)
+
+    def interrupted_publish(*args,**kwargs):
+        raise PermissionError('simulated publish failure')
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path,'write_bytes',interrupted_bytes)
+        patch.setattr(Path,'write_text',interrupted_text)
+        if failure_at=='publish':patch.setattr(library_module.os,'rename',interrupted_publish)
+        with pytest.raises(OSError,match='simulated'):lib.save(payload)
+    assert lib.catalog()['entries']==[] and not list(lib.root.glob('.saving_*'))
+    saved=lib.save(payload)
+    assert not saved['already_saved'] and lib.read(saved['entry']['entry_id'])[1]==original
+    assert lib.save(payload)['already_saved']
+
+def test_two_store_instances_publish_one_complete_record(library,monkeypatch):
+    lib,designs,models=library
+    other=GeometryLibrary(lib.root,designs)
+    original=scheme(designs,models)
+    payload=dict(scheme_id=original['scheme_id'],name='并发保存')
+    barrier=threading.Barrier(2)
+    rename=library_module.os.rename
+
+    def simultaneous_publish(source,destination):
+        assert lib.catalog()['entries']==[]
+        barrier.wait(timeout=10)
+        return rename(source,destination)
+
+    monkeypatch.setattr(library_module.os,'rename',simultaneous_publish)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures=[executor.submit(store.save,payload) for store in (lib,other)]
+        results=[future.result(timeout=15) for future in futures]
+    assert results[0]['entry']['entry_id']==results[1]['entry']['entry_id']
+    assert sorted(row['already_saved'] for row in results)==[False,True]
+    assert len(lib.catalog()['entries'])==1 and not list(lib.root.glob('.saving_*'))
+    assert lib.read(results[0]['entry']['entry_id'])[1]==original
+
 def test_library_export_matches_saved_coordinates_and_all_hashes(library):
     lib,designs,models=library;original=scheme(designs,models);entry=lib.save(dict(scheme_id=original['scheme_id'],name='记录包'))['entry'];response=lib.export(entry['entry_id'])
     path=designs.downloads[response['download_url'].rsplit('/',1)[-1]]
@@ -109,6 +162,12 @@ def test_library_rejects_path_traversal_and_bad_save_names(library):
         with pytest.raises(ValueError):lib.folder(key)
     for name in ('','x'*61,'bad\nname'):
         with pytest.raises(ValueError):lib.save(dict(scheme_id=original['scheme_id'],name=name))
+
+def test_missing_record_link_has_actionable_error_and_creates_no_scheme(library):
+    lib,designs,models=library
+    with pytest.raises(ValueError,match='从方案库选择可用记录'):
+        lib.load('0'*64)
+    assert not designs.schemes and models.loads==0
 
 @pytest.mark.parametrize('N,R,feasible',[(11,60,True),(50,40,False)])
 def test_comparison_export_keeps_all_rows_hashes_and_failed_statuses(library,N,R,feasible):

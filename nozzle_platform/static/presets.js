@@ -5,6 +5,7 @@ function presetAvailability(){
  for(const id of ["preset-select","preset-name","preset-import"])$(id).disabled=state.busy;
  for(const id of ["preset-load","preset-export"])$(id).disabled=state.busy||!selected?.available;
  for(const id of ["preset-save","preset-check"])$(id).disabled=state.busy||!state.model;
+ for(const button of document.querySelectorAll(".preset-field-link"))button.disabled=state.busy;
 }
 async function refreshPresets(selected){
  const data=await pipelineGet("/api/presets");data.presets.sort((a,b)=>Number(b.physical_model==="air-isothermal-v1")-Number(a.physical_model==="air-isothermal-v1"));presetState.items=data.presets;
@@ -42,16 +43,73 @@ async function loadPreset(){
   notice("预设已载入，尚未启动网格或求解。请核对供气模板与当前实际结构。","neutral");
  }catch(e){notice(e.message,"error");}finally{busy(false);}
 }
+const preflightFields={
+ chamber_radius_mm:{id:"chamber-radius",label:"燃烧室半径"},
+ chamber_length_mm:{id:"chamber-length",label:"燃烧室长度"},
+ chamber_start_z_mm:{id:"chamber-start",label:"公共腔起点"},
+ passage_radius_mm:{id:"passage-radius",label:"内部截取半径"},
+ upstream_z_mm:{id:"upstream-z",label:"空气入口截面"},
+ fuel_z_mm:{id:"fuel-z",label:"供氢带中心"},
+ fuel_half_band_mm:{id:"fuel-band",label:"供氢带半宽"},
+ oxidizer_ports_per_nozzle:{id:"air-ports",label:"空气口数量"},
+ fuel_ports_per_nozzle:{id:"fuel-ports",label:"氢气口数量"},
+ template_confirmed:{id:"template-confirmed",label:"供气模板确认"}
+};
+function focusPreflightField(field){
+ if(state.busy)return;
+ const descriptor=preflightFields[field];
+ if(!descriptor)return;
+ const target=$(descriptor.id);
+ for(let parent=target.parentElement;parent;parent=parent.parentElement){
+  if(parent.tagName==="DETAILS")parent.open=true;
+ }
+ for(const previous of document.querySelectorAll(".preflight-target"))previous.classList.remove("preflight-target");
+ target.classList.add("preflight-target");
+ target.scrollIntoView({block:"center"});
+ target.focus({preventScroll:true});
+}
+function addPreflightFieldLinks(parent,fields){
+ const links=document.createElement("div");
+ links.className="preset-field-links";
+ for(const field of fields){
+  const descriptor=preflightFields[field];
+  if(!descriptor)continue;
+  const button=document.createElement("button");
+  button.type="button";
+  button.className="preset-field-link";
+  button.textContent="修改"+descriptor.label;
+  button.disabled=state.busy;
+  button.addEventListener("click",()=>focusPreflightField(field));
+  links.append(button);
+ }
+ if(links.childElementCount)parent.append(links);
+}
 function displayPreflight(result){
  const box=$("preset-check-result");box.hidden=false;box.replaceChildren();
- for(const row of result.cases){const item=document.createElement("div");item.className="preset-check-row"+(row.parameters_valid?" ready":"");item.textContent=`方案 ${row.index} · N=${row.N}：${row.message}`;box.append(item);}
+ for(const row of result.cases){
+  const item=document.createElement("div");
+  item.className="preset-check-row"+(row.parameters_valid?" ready":"");
+  const issues=Array.isArray(row.issues)?row.issues:[];
+  item.textContent=`方案 ${row.index} · N=${row.N} · `+(issues.length?"请核对以下参数":row.message);
+  for(const issue of issues){
+   const detail=document.createElement("div");
+   detail.className="preset-issue";
+   const message=document.createElement("p");
+   message.textContent=issue.message;
+   detail.append(message);
+   addPreflightFieldLinks(detail,Array.isArray(issue.fields)?issue.fields:[]);
+   item.append(detail);
+  }
+  box.append(item);
+ }
  const r=result.resources,summary=document.createElement("p");summary.textContent=`可用内存 ${fmt(r.available_memory_GiB,2)} GiB（需 ≥ ${r.minimum_memory_GiB}）；输出盘空闲 ${fmt(r.output_disk_free_GiB,2)} GiB（需 ≥ ${r.minimum_disk_GiB}）。${r.fluent_available?"已找到 Fluent 程序。":"未找到 Fluent 程序。"}${result.template_confirmed?"":"供气模板尚未确认。"}`;box.append(summary);
+ if(!result.template_confirmed)addPreflightFieldLinks(box,["template_confirmed"]);
  const pending=document.createElement("p");pending.textContent="后续仍需核查："+result.pending_checks.join("、")+"。";box.append(pending);const note=document.createElement("p");note.className="hint";note.textContent=result.note;box.append(note);
 }
 function initializePresets(){
  $("preset-select").addEventListener("change",()=>{presetAvailability();const p=presetState.items.find(p=>p.preset_id===$("preset-select").value);if(p&&!p.available)$("preset-note").textContent=p.error;});
  $("preset-load").addEventListener("click",loadPreset);
- $("preset-save").addEventListener("click",async()=>{try{const request=pipelineRequest(),name=$("preset-name").value;busy(true,"正在保存模型参考与整套参数…");const p=await api("/api/preset-save",{name,request});await refreshPresets(p.preset_id);notice("预设已保存，可在重新打开软件后载入。载入后需重新确认供气模板。");}catch(e){notice(e.message,"error");}finally{busy(false);}});
+ $("preset-save").addEventListener("click",async()=>{try{const request=pipelineRequest({useDisplayedGeometry:false}),name=$("preset-name").value;busy(true,"正在保存模型参考与整套参数…");const p=await api("/api/preset-save",{name,request});await refreshPresets(p.preset_id);notice("参数预设已保存，原排布坐标可从几何方案库恢复。载入预设后需重新确认供气模板。");}catch(e){notice(e.message,"error");}finally{busy(false);}});
  $("preset-export").addEventListener("click",()=>download("/preset-files/"+$("preset-select").value+".json","nozzle_preset.json"));
  $("preset-import").addEventListener("click",()=>$("preset-file").click());
  $("preset-file").addEventListener("change",async event=>{try{const file=event.target.files[0];if(!file)return;if(file.size>65536)throw Error("参数 JSON 超过 64 KiB。");const data=JSON.parse(await file.text());busy(true,"正在核对并导入参数预设…");const p=await api("/api/preset-import",data);await refreshPresets(p.preset_id);notice("预设已导入；选择「载入所选预设」后再检查运行条件。");}catch(e){notice(e.message,"error");}finally{busy(false);event.target.value="";}});

@@ -2,7 +2,7 @@
 const $=id=>document.getElementById(id);
 const workspaceMode=new URLSearchParams(location.search).get("mode");
 const beginnerMode=workspaceMode==="quick"||(!workspaceMode&&!location.hash);
-const state={sources:[],model:null,scheme:null,domain:null,mesh:null,flow:null,study:null,job:null,busy:false,view:"3d",viewer:null,beginner:beginnerMode,geometryOnly:beginnerMode||workspaceMode==="geometry"};
+const state={sources:[],model:null,scheme:null,selectedGeometry:null,domain:null,mesh:null,flow:null,study:null,job:null,busy:false,view:"3d",viewer:null,beginner:beginnerMode,geometryOnly:beginnerMode||workspaceMode==="geometry"};
 const familyNames={rectangular:"方阵",honeycomb:"蜂巢",sunflower:"向日葵",ring:"环形"};
 const fmt=(v,d=3)=>v===null||v===undefined?"—":Number(v).toLocaleString("zh-CN",{maximumFractionDigits:d});
 function notice(message,type=""){ $("notice").textContent=message;$("notice").className="notice "+type; }
@@ -37,10 +37,13 @@ function setSourceReference(){
   ["origin-x","origin-y","origin-z"].forEach((id,i)=>{$(id).value=source?.default_origin_mm?.[i]??"";});
 }
 function invalidate(message=false){
+  if(!state.beginner&&new URLSearchParams(location.search).has("entry")){
+    const address=new URL(location.href);address.searchParams.delete("entry");history.replaceState(null,"",address);
+  }
   clearDesignAdvice();
   clearGeometryComparison();
   invalidateDomain();
-  state.scheme=null;$("coordinate-rows").innerHTML='<tr><td colspan="5" class="empty-table">参数已更新，生成后显示坐标</td></tr>';
+  state.scheme=null;state.selectedGeometry=null;$("coordinate-rows").innerHTML='<tr><td colspan="5" class="empty-table">参数已更新，生成后显示坐标</td></tr>';
   for(const id of ["metric-count","metric-spacing","metric-gap","metric-wall"])$(id).textContent="—";
   $("plan-view").replaceChildren();$("view-name").textContent="单喷嘴预览";
   $("result-note").textContent="生成后可检查坐标，导出参数与真实实体阵列。";
@@ -86,6 +89,13 @@ function parameters(){
     diameter_mm:val("diameter"),edge_gap_mm:val("gap"),wall_clearance_mm:val("wall"),spacing_mode:$("spacing-mode").value,
     spacing_mm:$("spacing-mode").value==="manual"&&["rectangular","honeycomb"].includes($("family").value)?val("spacing"):val("diameter")+val("gap"),rotation_deg:$("spacing-mode").value==="manual"?val("rotation"):0};
 }
+function applyDesignFields(request){
+  const fields={N:"count",family:"family",region:"region",radius_mm:"radius",start_angle_deg:"start-angle",sweep_angle_deg:"sweep-angle",diameter_mm:"diameter",edge_gap_mm:"gap",wall_clearance_mm:"wall",spacing_mode:"spacing-mode",spacing_mm:"spacing",rotation_deg:"rotation"};
+  for(const [name,id] of Object.entries(fields))$(id).value=request[name];
+  $("sector-fields").hidden=request.region!=="sector";
+  $("manual-fields").hidden=request.spacing_mode!=="manual";
+  $("spacing").parentElement.hidden=!["honeycomb","rectangular"].includes(request.family);
+}
 function planSvg(scheme){
   const r=scheme.request,R=r.radius_mm,size=R*1.15;let boundary;
   if(r.region==="circle")boundary=`<circle cx="0" cy="0" r="${R}"/>`;
@@ -94,7 +104,7 @@ function planSvg(scheme){
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${-size} ${-size} ${size*2} ${size*2}"><g fill="none" stroke="#7b9a9e" stroke-width="${R/200}">${boundary}</g><g stroke-width="${R/220}">${circles}</g></svg>`;
 }
 function display(scheme){
-  state.scheme=scheme;const summary=scheme.summary;
+  state.scheme=scheme;state.selectedGeometry=null;const summary=scheme.summary;
   $("metric-count").textContent=summary.nozzle_count;$("metric-spacing").textContent=fmt(summary.minimum_center_distance_mm);
   $("metric-gap").textContent=fmt(summary.minimum_edge_gap_mm);$("metric-wall").textContent=fmt(summary.minimum_wall_clearance_mm);
   $("coordinate-rows").replaceChildren();scheme.coordinates_mm.forEach(([x,y],i)=>{const tr=document.createElement("tr");for(const value of [String(i+1).padStart(2,"0"),fmt(x,5),fmt(y,5),"0","✓ 包络检查通过"]){const td=document.createElement("td");td.textContent=value;tr.append(td);}$("coordinate-rows").append(tr);});
@@ -169,12 +179,28 @@ $("save-image").addEventListener("click",()=>{
 });
 async function init(){
   initializeBeginner();
-  try{state.viewer=new NozzleViewer($("viewer"));}catch(error){notice(error.message,"error");if(!state.beginner)return;$("view-3d").hidden=true;$("reset-view").hidden=true;}
+  try{state.viewer=new NozzleViewer($("viewer"));}catch(error){notice(error.message,"error");if(!state.geometryOnly&&!new URLSearchParams(location.search).has("entry"))return;$("view-3d").hidden=true;$("reset-view").hidden=true;switchView("plan");}
   initializeDomains();
   initializeSimulation();
   initializePipeline();
   initializePresets();
   initializeGeometryWorkspace();
-  try{const response=await fetch("/api/bootstrap"),data=await response.json();state.sources=data.models;$("solver-capability").textContent=data.workflow.note;state.fluentAvailable=data.workflow.fluent_available;if(data.workflow.preferred_compute_device==="gpu")selectGpuValidation();sourceOptions();setSourceReference();if(state.beginner){await startBeginner(data.geometry_limits);return;}if(state.sources.length)await loadModel();else notice("导入单喷嘴 STEP，即可开始设计。","neutral");await refreshPresets();await refreshGeometryLibrary();if(!state.geometryOnly)await refreshPipelineHistory();}catch(error){notice(error.message,"error");if(state.beginner)beginnerStatus("无法连接本机平台。请刷新网页重试。","error");}
+  try{
+    const response=await fetch("/api/bootstrap"),data=await response.json();
+    state.sources=data.models;$("solver-capability").textContent=data.workflow.note;state.fluentAvailable=data.workflow.fluent_available;
+    if(data.workflow.preferred_compute_device==="gpu")selectGpuValidation();
+    sourceOptions();setSourceReference();
+    if(state.beginner){await startBeginner(data.geometry_limits);return;}
+    const entry=new URLSearchParams(location.search).get("entry");
+    if(entry){
+      await refreshPresets();await refreshGeometryLibrary();
+      const restored=await loadGeometryEntry(entry);
+      if(restored)$("viewport").scrollIntoView({block:"center"});
+    }else{
+      if(state.sources.length)await loadModel();else notice("导入单喷嘴 STEP，即可开始设计。","neutral");
+      await refreshPresets();await refreshGeometryLibrary();
+      if(!state.geometryOnly)await refreshPipelineHistory();
+    }
+  }catch(error){notice(error.message,"error");if(state.beginner)beginnerStatus("无法连接本机平台。请刷新网页重试。","error");}
 }
 init();

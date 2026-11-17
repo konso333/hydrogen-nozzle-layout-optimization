@@ -3,10 +3,11 @@ const pipelineState={task:null,watch:0,previewKey:null};
 const pipelineStageNames={design:"阵列检查",assembly:"三维装配",domain:"流体域",mesh:"体网格",flow:"Fluent 冷流",maps:"仿真场图"};
 const pipelineStatusNames={queued:"等待运行",running:"正在运行",completed:"完成",not_converged:"计算结束 · 未收敛",completed_with_map_error:"计算结束 · 场图未取得",failed:"失败",cancelled:"已停止",interrupted:"运行被中断",completed_with_failures:"部分方案失败"};
 function pipelineAvailability(){
- const ready=!!state.model&&$("template-confirmed").checked&&state.fluentAvailable;
+ const tooMany=!!state.model&&Number($("count").value)>25;
+ const ready=!!state.model&&$("template-confirmed").checked&&state.fluentAvailable&&!tooMany;
  const active=state.busy&&pipelineState.task&&["queued","running"].includes(pipelineState.task.status);
  $("run-pipeline").disabled=state.busy?!active:!ready;$("run-pipeline").textContent=active?"查看运行进度 ↗":"一键运行 ↗";
- $("pipeline-ready").textContent=state.busy?"任务正在执行，参数已锁定。可在下方查看进度或停止。":!state.model?"先导入并载入单喷嘴模型。":!$("template-confirmed").checked?"请在公共流体域设置中确认供气模板与实际模型一致。":!state.fluentAvailable?"未找到本机 Fluent，可继续设计及导出阵列。":"沿用左侧当前参数，自动生成阵列、装配、流体域、网格和冷流结果。";
+ $("pipeline-ready").textContent=state.busy?"任务正在执行，参数已锁定。可在下方查看进度或停止。":!state.model?"先导入并载入单喷嘴模型。":tooMany?"当前排布超过 25 个喷嘴，超出本版仿真上限。可继续几何设计或另建少量喷嘴的方案。":!$("template-confirmed").checked?"请在公共流体域设置中确认供气模板与实际模型一致。":!state.fluentAvailable?"未找到本机 Fluent，可继续设计及导出阵列。":state.selectedGeometry?"方案 1 将使用当前已保存的排布坐标，请先检查腔体、供气和工况参数。":"沿用左侧当前参数，自动生成阵列、装配、流体域、网格和冷流结果。";
  $("pipeline-refresh").disabled=false;
  $("pipeline-history").disabled=state.busy;
  if(state.busy&&state.job&&state.job!==pipelineState.task?.job_id)$("pipeline-refresh").disabled=true;
@@ -15,13 +16,18 @@ function pipelineAvailability(){
 }
 function pipelineNode(tag,text,cls){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;}
 async function pipelineGet(path){const r=await fetch(path,{cache:"no-store"}),v=await r.json();if(!r.ok)throw Error(v.error||"无法读取任务");return v;}
-function pipelineRequest(){
+function pipelineRequest({useDisplayedGeometry=true}={}){
  const domain=domainParameters("planned");delete domain.scheme_id;
  const basis=$("pipeline-basis").value,comparison={basis,cases:[],fuel_lhv_MJ_kg:numeric("pipeline-lhv")};
  if(basis!=="single")comparison.cases.push({N:numeric("pipeline-n2"),family:$("pipeline-family2").value});
  if(basis!=="single"&&$("pipeline-third").checked)comparison.cases.push({N:numeric("pipeline-n3"),family:$("pipeline-family3").value});
  if(basis==="same-heat")comparison.fuel_heat_input_kW=numeric("pipeline-power");
- return {design:parameters(),domain,mesh:meshValues(),flow:flowValues(),comparison,section:{axis:$("pipeline-axis").value,position_mm:numeric("pipeline-position")}};
+ const request={design:parameters(),domain,mesh:meshValues(),flow:flowValues(),comparison,section:{axis:$("pipeline-axis").value,position_mm:numeric("pipeline-position")}};
+ if(useDisplayedGeometry&&state.selectedGeometry){
+  if(state.scheme?.scheme_id!==state.selectedGeometry||Object.entries(request.design).some(([key,value])=>state.scheme.request[key]!==value))throw Error("当前参数与已选排布不一致，请重新载入方案或重新生成。");
+  request.selected_scheme_id=state.selectedGeometry;
+ }
+ return request;
 }
 function displayPipeline(task){
  const air=task.config.flow.physical_model==="air-isothermal-v1",heads=$("pipeline-rows").closest("table").querySelectorAll("thead th");

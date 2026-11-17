@@ -173,6 +173,13 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/import":
                 name = unquote(self.headers.get("X-Filename", "model.step")).replace("\\", "/").rsplit("/", 1)[-1]
                 return self.json(self.server.models.add_source(name, raw))
+            if path == '/api/geometry-library-import':
+                if self.headers.get_content_type()!='application/zip':
+                    raise ValueError('请上传几何记录 ZIP。')
+                with self.server.workflows.lock:
+                    if self.server.workflows.active or self.server.workflows.reservation:
+                        raise ValueError('本机计算运行时不导入其他模型，请先结束当前任务。')
+                return self.json(self.server.geometry_library.import_package(raw))
             if self.headers.get_content_type() != "application/json":
                 raise ValueError("请求必须使用 JSON。")
             def reject(value):
@@ -196,6 +203,10 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/design-compare':return self.json(self.server.designs.compare(data))
             if path=='/api/design-compare-export':return self.json(self.server.designs.export_comparison(data))
             if path=='/api/geometry-library-save':return self.json(self.server.geometry_library.save(data))
+            if path in ('/api/geometry-library-compare','/api/geometry-library-compare-export'):
+                from nozzle_platform.saved_comparison import compare,export
+                action=export if path.endswith('-export') else compare
+                return self.json(action(self.server.geometry_library,data))
             if path in ('/api/geometry-library-load','/api/geometry-library-export'):
                 if set(data)!={'entry_id'}:raise ValueError('几何方案库操作仅接受 entry_id。')
                 if path.endswith('-load'):

@@ -1,13 +1,13 @@
 """Reuse verified mesh before solver launch without overwriting the failed task."""
 import copy,time
 import pytest
-from tests.test_pipelines import store,request,finished
+from tests.test_pipelines import store,request,finished,selected_request
 from nozzle_platform.pipelines import ResourcesUnavailable
 from nozzle_platform.workflows import ROOT,IMPLEMENTATION,sha256,save
 from tests.test_platform import server,call
 
 
-def blocked(store,monkeypatch):
+def blocked(store,monkeypatch,config=None):
     original=store.workflows._start
     def start(kind,*a,**kw):
         if kind=='flow':raise ResourcesUnavailable('SYNTHETIC resource gate before solver')
@@ -15,7 +15,7 @@ def blocked(store,monkeypatch):
         store.workflows.results[child['job_id']]['implementation_sha256']={n:sha256(ROOT/n) for n in IMPLEMENTATION}
         return child
     monkeypatch.setattr(store.workflows,'_start',start)
-    task=finished(store,request());monkeypatch.setattr(store.workflows,'_start',original)
+    task=finished(store,request() if config is None else config);monkeypatch.setattr(store.workflows,'_start',original)
     return task
 
 
@@ -28,6 +28,21 @@ def test_resume_starts_flow_without_a_second_mesh_and_preserves_original_failure
     assert task['cases'][0]['mesh_id']==old['cases'][0]['mesh_id']
     assert task['cases'][0]['mesh_reused_from_job']==old['job_id']
     assert (store.folders[old['job_id']]/'task.json').read_bytes()==before
+
+def test_selected_coordinates_restore_from_verified_case_when_reusing_mesh(store,monkeypatch):
+    config,scheme=selected_request(store)
+    old=blocked(store,monkeypatch,config)
+    store.designs.schemes.clear()
+    def no_regeneration(*args):raise AssertionError('Mesh reuse must preserve saved coordinates')
+    monkeypatch.setattr(store.designs,'create',no_regeneration)
+    task=store.start_from_mesh(old['job_id'])
+    end=time.monotonic()+8
+    while store.workflows.reservation and time.monotonic()<end:time.sleep(.01)
+    task=store.status(task['job_id'])
+    assert task['status']=='completed'
+    assert task['cases'][0]['coordinates_mm']==scheme['coordinates_mm']
+    assert task['cases'][0]['scheme_id']==old['cases'][0]['scheme_id']
+    assert [kind for kind,_ in store.workflows.calls]==['mesh','flow']
 
 
 @pytest.mark.parametrize('fault',['hash','implementation','started_solver','uncertain_failure'])

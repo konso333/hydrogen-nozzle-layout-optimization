@@ -17,18 +17,21 @@ from nozzle_platform.domains import FIELDS as DOMAIN_FIELDS,normalize as normali
 from nozzle_platform.design import layout_svg
 from validation import require_count,require_finite
 from nozzle_platform.mesh_reuse import compatibility as mesh_compatibility
+from nozzle_platform.geometry_records import verify_scheme
 
 STAGES=('design','assembly','domain','mesh','flow','maps')
 FAMILIES={'rectangular','honeycomb','sunflower','ring'}
 class ResourcesUnavailable(ValueError):pass
 SOURCES=tuple(dict.fromkeys(IMPLEMENTATION+('nozzle_platform/pipelines.py','nozzle_platform/bounded.py',
-    'nozzle_platform/field_maps.py','nozzle_platform/design.py','nozzle_platform/layout_search.py','nozzle_platform/domains.py','nozzle_platform/models.py','nozzle_platform/presets.py','nozzle_platform/mesh_reuse.py')))
+    'nozzle_platform/field_maps.py','nozzle_platform/design.py','nozzle_platform/layout_search.py','nozzle_platform/domains.py','nozzle_platform/models.py','nozzle_platform/presets.py','nozzle_platform/mesh_reuse.py','nozzle_platform/geometry_records.py')))
 
 
 def normalize(request):
     required={'design','domain','mesh','flow','comparison','section'}
-    if not isinstance(request,dict) or set(request)!=required or any(not isinstance(request[n],dict) for n in required):
+    if not isinstance(request,dict) or not required<=set(request) or set(request)-required-{'selected_scheme_id'} or any(not isinstance(request[n],dict) for n in required):
         raise ValueError('请提供完整的阵列、流体域、网格、工况、比较规则和截面设置。')
+    if 'selected_scheme_id' in request and (not isinstance(request['selected_scheme_id'],str) or not re.fullmatch('[0-9a-f]{64}',request['selected_scheme_id'])):
+        raise ValueError('已选排布编号无效，请重新载入几何方案。')
     result=copy.deepcopy(request);design=result['design'];comparison=result['comparison']
     if set(result['domain'])!=DOMAIN_FIELDS-{'scheme_id'} or result['domain'].get('template_confirmed') is not True:
         raise ValueError('请填写流体域参数，并确认供气模板与实际模型一致。')
@@ -107,6 +110,20 @@ class PipelineStore:
             ordered=sorted(self.folders,key=lambda key:self.workflows.jobs[key].get('started_at',0),reverse=True)
             return [dict(job_id=key,status=self.workflows.jobs[key]['status'],message=self.workflows.jobs[key]['message']) for key in ordered]
 
+    def selected_geometry(self,config,*,snapshot=None):
+        key=config.get('selected_scheme_id')
+        if key is None:return None
+        scheme=copy.deepcopy(snapshot if snapshot is not None else self.designs.get(key))
+        if scheme.get('scheme_id')!=key or scheme.get('request')!=config['design']:
+            raise ValueError('当前参数与已选排布不一致，请重新载入方案或重新生成。')
+        model=self.designs.models.get(config['design']['model_id'])
+        if scheme.get('model',{}).get('source_id')!=model.get('source_id'):
+            raise ValueError('已选排布的原模型不一致，请重新载入。')
+        verify_scheme(dict(scheme,model={k:v for k,v in model.items() if k not in ('vertices','triangles')}))
+        if snapshot is not None:
+            with self.designs.lock:self.designs.schemes[key]=copy.deepcopy(scheme)
+        return scheme
+
     def preflight(self,request):
         """Parameter/resource checks only; CAD ports, licence and fields remain pending."""
         import psutil
@@ -117,19 +134,24 @@ class PipelineStore:
             raise ValueError('请提供完整参数和供气模板确认状态。')
         confirmed=original['domain']['template_confirmed'];original['domain']['template_confirmed']=True
         config=normalize(original);model=self.designs.models.get(config['design']['model_id'])
+        selected=self.selected_geometry(config)
         source=self.designs.models.root/(model['source_id']+'.step')
         if not source.is_file() or sha256(source)!=model['source_id']:raise ValueError('当前模型文件缺失或哈希改变，请重新导入。')
         rows=[]
         for i,case in enumerate(config['cases'],1):
             row=dict(index=i,**case,parameters_valid=False,geometry_verified=False)
             try:
-                scheme=self.designs.create(dict(config['design'],**case))
+                scheme=selected if i==1 and selected is not None else self.designs.create(dict(config['design'],**case))
                 if not scheme['feasible']:raise ValueError(scheme['message'])
                 normalize_domain(dict(config['domain'],scheme_id=scheme['scheme_id']),scheme,model)
                 row.update(parameters_valid=True,message='阵列包络及腔体／入口参数检查通过；实际流道与入口数量将在 CAD 阶段核查。',
                     expected_oxidizer_ports=case['N']*config['domain']['oxidizer_ports_per_nozzle'],
                     expected_fuel_ports=case['N']*config['domain']['fuel_ports_per_nozzle'])
-            except (ValueError,TypeError,KeyError) as error:row['message']=str(error)
+                row.update(scheme_id=scheme['scheme_id'],coordinates_preserved=i==1 and selected is not None)
+                if row['coordinates_preserved']:row['message']='已按保存坐标核对阵列与腔体参数；实际流道与入口数量将在 CAD 阶段核查。'
+            except (ValueError,TypeError,KeyError) as error:
+                row['message']=str(error)
+                row['issues']=getattr(error,'issues',[dict(code='configuration_error',fields=[],message=str(error))])
             rows.append(row)
         memory=psutil.virtual_memory().available/1024**3;disk=shutil.disk_usage(self.root).free/1024**3
         capability=self.workflows.capability();ready=memory>=4 and disk>=5 and capability['fluent_available']
@@ -175,6 +197,11 @@ class PipelineStore:
             raise ValueError('仅对明确在求解启动前被资源门限停止的任务复用网格。')
         self.resources();self.file(key,'single_nozzle.step')
         if self.workflows.active or self.workflows.reservation:raise ValueError('已有本机任务正在运行。')
+        if old['config'].get('selected_scheme_id'):
+            try:self.designs.models.get(old['config']['design']['model_id'])
+            except ValueError:self.restore_source(key)
+            snapshot=json.loads(self.file(key,'case1_scheme.json').read_text(encoding='utf-8'))
+            self.selected_geometry(old['config'],snapshot=snapshot)
         if row['mesh_id'] not in self.workflows.results:self.restore_mesh_record(key,old,row)
         mesh,_=self.workflows.get_result(row['mesh_id'],row['domain_id'],row['scheme_id'],'mesh')
         compatibility=mesh_compatibility(mesh.get('implementation_sha256'),{n:sha256(ROOT/n) for n in IMPLEMENTATION})
@@ -218,7 +245,7 @@ class PipelineStore:
             domain_folder=path.parent
         try:self.designs.models.get(old['config']['design']['model_id'])
         except ValueError:self.restore_source(key)
-        scheme=self.designs.create(old['config']['design'])
+        scheme=self.selected_geometry(old['config']) or self.designs.create(old['config']['design'])
         if scheme['scheme_id']!=row['scheme_id'] or not scheme['feasible']:raise ValueError('历史几何参考未能恢复。')
         with self.domains.lock:
             self.domains.domains[row['domain_id']]=domain;self.domains.directories[row['domain_id']]=domain_folder
@@ -228,6 +255,7 @@ class PipelineStore:
 
     def start(self,request,*,reuse_mesh=None):
         config=normalize(request);self.designs.models.get(config['design'].get('model_id'))
+        selected=self.selected_geometry(config)
         if not self.workflows.capability()['fluent_available']:raise ValueError(self.workflows.capability()['note'])
         with self.workflows.lock:
             if self.workflows.active or self.workflows.reservation:raise ValueError('已有本机任务正在运行，请等待或停止。')
@@ -238,6 +266,8 @@ class PipelineStore:
                        scientific_eligible=False,grid_independence_verified=False,comparison_eligible=False,cpu_fallback=False,
                        implementation_sha256={n:sha256(ROOT/n) for n in SOURCES},started_at=time.time())
             if reuse_mesh:state['mesh_resume']=copy.deepcopy(reuse_mesh)
+            if selected is not None:
+                state['selected_geometry']=selected
             for i,item in enumerate(config['cases']):
                 state['cases'].append(dict(index=i+1,**item,status='queued',stages=[dict(name=n,status='pending',message='等待执行') for n in STAGES]))
             save(folder/'request.json',config);self.add_file(state,folder/'request.json','request.json');self.publish(state)
@@ -323,7 +353,10 @@ class PipelineStore:
                 local=folder/('case_'+str(row['index']));local.mkdir();name='case'+str(row['index']);self.check(state,cancel)
                 try:
                     self.stage(state,row,'design','running','生成并检查阵列')
-                    scheme=self.designs.create(dict(config['design'],N=row['N'],family=row['family']))
+                    if row['index']==1 and state.get('selected_geometry') is not None:
+                        scheme=self.selected_geometry(config,snapshot=state['selected_geometry'])
+                        row['coordinates_preserved']=True
+                    else:scheme=self.designs.create(dict(config['design'],N=row['N'],family=row['family']))
                     if not scheme['feasible']:
                         row['geometry_failure_reasons']=scheme.get('failure_reasons',[])
                         raise ValueError(scheme['message'])
@@ -332,7 +365,7 @@ class PipelineStore:
                     with (local/'coordinates.csv').open('w',encoding='utf-8-sig',newline='') as f:
                         w=csv.writer(f);w.writerow(['nozzle_id','x_mm','y_mm','z_mm']);w.writerows((i+1,*p,0) for i,p in enumerate(scheme['coordinates_mm']))
                     for n in ['scheme.json','layout.svg','coordinates.csv']:self.add_file(state,local/n,name+'_'+n)
-                    self.stage(state,row,'design','completed','阵列数量、边界与间距检查通过')
+                    self.stage(state,row,'design','completed','保存坐标的数量、边界与间距检查通过' if row.get('coordinates_preserved') else '阵列数量、边界与间距检查通过')
                     self.check(state,cancel);self.stage(state,row,'assembly','running','复制实体并导出三维装配')
                     row['assembly']=self.designs.models.export_array(model['model_id'],scheme['coordinates_mm'],local/'array.step',cancel=cancel)
                     self.add_file(state,local/'array.step',name+'_assembly.step')

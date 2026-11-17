@@ -73,6 +73,7 @@
 }
 #beginner-result h2 { font-size: 21px; margin: 0 0 3px; }
 #beginner-result p { margin: 0; line-height: 1.6; }
+#beginner-result .beginner-next { flex-basis: 100%; font-size: 12px; color: #42645a; }
 
 @media (max-width: 600px) {
   .beginner-fields { grid-template-columns: 1fr; }

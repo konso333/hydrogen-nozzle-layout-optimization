@@ -18,6 +18,12 @@ FIELDS = {"scheme_id", "chamber_radius_mm", "chamber_length_mm", "chamber_start_
 MESH_FIELDS = {"vertices", "triangles", "triangle_roles"}
 
 
+class DomainValidationError(ValueError):
+    def __init__(self, issues):
+        super().__init__(issues[0]['message'])
+        self.issues = issues
+
+
 def normalize(request, scheme, model):
     if not isinstance(request, dict) or set(request) != FIELDS:
         raise ValueError("流体域参数缺失或包含未知字段，请刷新页面。")
@@ -31,36 +37,62 @@ def normalize(request, scheme, model):
     if count > 25:
         raise ValueError("当前公共流体域节点最多处理 25 个喷嘴，请先用少量代表方案。")
     config = dict(request)
+    issues = []
     for key in ("chamber_radius_mm", "chamber_length_mm", "passage_radius_mm", "fuel_half_band_mm"):
-        config[key] = require_finite(request[key],key)
+        try:
+            config[key] = require_finite(request[key],key)
+        except ValueError as error:
+            issues.append(dict(code='invalid_number', fields=[key], message=str(error)))
+            continue
         if config[key] <= 0:
-            raise ValueError("燃烧室、内部包络半径及供氢带半宽必须为正数。")
+            issues.append(dict(code='positive_size', fields=[key],
+                               message="燃烧室、内部包络半径及供氢带半宽必须为正数。"))
     for key in ("upstream_z_mm", "fuel_z_mm", "chamber_start_z_mm"):
-        config[key] = require_finite(request[key],key)
+        try:
+            config[key] = require_finite(request[key],key)
+        except ValueError as error:
+            issues.append(dict(code='invalid_number', fields=[key], message=str(error)))
     for key in ("oxidizer_ports_per_nozzle", "fuel_ports_per_nozzle"):
-        config[key] = require_count(request[key],key)
+        try:
+            config[key] = require_count(request[key],key)
+        except ValueError as error:
+            issues.append(dict(code='invalid_count', fields=[key], message=str(error)))
+            continue
         if config[key] > 128:
-            raise ValueError("每个喷嘴的入口数量最多为 128。")
+            issues.append(dict(code='port_count_limit', fields=[key], message="每个喷嘴的入口数量最多为 128。"))
+    if issues:
+        raise DomainValidationError(issues)
     if config["chamber_radius_mm"] > 5000 or config["chamber_length_mm"] > 10000:
-        raise ValueError("燃烧室尺寸超过首版预算。")
+        issues.append(dict(code='chamber_size_limit', fields=['chamber_radius_mm', 'chamber_length_mm'],
+                           message="燃烧室尺寸超过首版预算。"))
     if config["upstream_z_mm"] >= 0 or config["upstream_z_mm"] < model["bounds_mm"][0][2]-.01:
-        raise ValueError("空气入口截面需位于参考面上游，且不能早于当前金属模型的上游端；公共供气腔尚未接入。")
+        issues.append(dict(code='upstream_position', fields=['upstream_z_mm'],
+                           message="空气入口截面需位于参考面上游，且不能早于当前金属模型的上游端；公共供气腔尚未接入。"))
     if not (config["upstream_z_mm"] < config["fuel_z_mm"]-config["fuel_half_band_mm"] <
             config["fuel_z_mm"]+config["fuel_half_band_mm"] < config["chamber_start_z_mm"] <= 0):
-        raise ValueError("供氢带需完整位于空气入口与公共腔起点之间，公共腔起点不晚于安装参考面。")
+        issues.append(dict(code='inlet_order', fields=['upstream_z_mm', 'fuel_z_mm', 'fuel_half_band_mm', 'chamber_start_z_mm'],
+                           message="供氢带需完整位于空气入口与公共腔起点之间，公共腔起点不晚于安装参考面。"))
     outlet_z = config["chamber_start_z_mm"]+config["chamber_length_mm"]
     if outlet_z <= max(0,model["bounds_mm"][1][2])+.1:
-        raise ValueError("燃烧室出口需位于全部金属部件下游，请增加燃烧室长度。")
+        issues.append(dict(code='outlet_position', fields=['chamber_length_mm', 'chamber_start_z_mm'],
+                           message="燃烧室出口需位于全部金属部件下游，请增加燃烧室长度。"))
     if config["passage_radius_mm"] > model["envelope_diameter_mm"]/2+1e-6:
-        raise ValueError("内部流道截取半径不能超过模型整体包络半径。")
+        issues.append(dict(code='passage_radius', fields=['passage_radius_mm'],
+                           message="内部流道截取半径不能超过模型整体包络半径。"))
     boundary_data = {**scheme["candidate"]["specification"]["boundary"], "radius_mm":config["chamber_radius_mm"]}
-    boundary = MountingBoundary(**boundary_data)
     required = max(config["passage_radius_mm"],model["envelope_diameter_mm"]/2)
-    if any(boundary.signed_distance_mm(p) < required-1e-6 for p in scheme["coordinates_mm"]):
-        raise ValueError("燃烧室截面未完整容纳当前喷嘴包络，请增大半径或调整阵列。")
+    if config["chamber_radius_mm"] <= 5000:
+        boundary = MountingBoundary(**boundary_data)
+        if any(boundary.signed_distance_mm(p) < required-1e-6 for p in scheme["coordinates_mm"]):
+            issues.append(dict(code='chamber_envelope', fields=['chamber_radius_mm'],
+                               message="燃烧室截面未完整容纳当前喷嘴包络，请增大半径或调整阵列。"))
     for i,p in enumerate(scheme["coordinates_mm"]):
         if any(math.dist(p,q) <= 2*config["passage_radius_mm"]+1e-6 for q in scheme["coordinates_mm"][i+1:]):
-            raise ValueError("相邻内部截取包络相交，不能作为独立喷嘴通道。")
+            issues.append(dict(code='passage_overlap', fields=['passage_radius_mm'],
+                               message="相邻内部截取包络相交，不能作为独立喷嘴通道。"))
+            break
+    if issues:
+        raise DomainValidationError(issues)
     return {**config, "boundary":boundary.to_dict(), "outlet_z_mm":outlet_z,"outlet_area_mm2":boundary.area_mm2}
 
 
